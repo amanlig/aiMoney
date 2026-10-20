@@ -1,0 +1,21 @@
+{
+  "account_type": "LIRA",
+  "quote_context": "Synthetic demonstration values, not current quotes or real holdings.",
+  "positions": [
+    {
+      "symbol": "QBTS",
+      "currency": "USD",
+      "fx_to_cad": "1",
+      "shares": 100,
+      "call_contracts": 1,
+      "contract_multiplier": 100,
+      "stock_bid": "12",
+      "call_ask": "1",
+      "stock_cost_total": "1000",
+      "call_premium_net_total": "200",
+      "call_strike_native_currency": "15",
+      "call_expiry": "2030-01-18",
+      "closing_fees": "0"
+    }
+  ]
+}
