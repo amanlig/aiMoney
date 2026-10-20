@@ -207,7 +207,7 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             except sqlite3.Error:
                 self.send_json({'error': 'Recommendation history unavailable.'}, 503)
             return
-        if self.path.split('?', 1)[0] in {'/', '/index.html', '/equity-chart.html'}:
+        if self.path.split('?', 1)[0] == '/equity-chart.html':
             self.send_response(302)
             self.send_header('Location', '/covered-call-optimizer.html')
             self.send_header('Cache-Control', 'no-store')
@@ -254,8 +254,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         if self.path == '/api/option-premiums/usd':
             self.send_json({'premiums': option_premiums.usd_records()})
             return
-        if self.path == '/covered-call-optimizer.html':
-            payload = (ROOT/'covered-call-optimizer.html').read_bytes()
+        if self.path.split('?', 1)[0] in {'/', '/index.html', '/covered-call-optimizer.html'}:
+            page = 'covered-call-optimizer.html' if self.path.split('?', 1)[0] == '/covered-call-optimizer.html' else 'index.html'
+            payload = (ROOT/page).read_bytes()
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Content-Length', str(len(payload)))

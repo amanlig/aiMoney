@@ -95,8 +95,9 @@ flowchart TB
 
 ### Optimizer home page and Profile / Settings
 
-`covered-call-optimizer.html` is the active home page, served directly from source.
-`/`, `/index.html` and the former `/equity-chart.html` URL redirect to it.
+`index.html` is the landing page, served at `/` and `/index.html`, with a short
+introduction and a link to `covered-call-optimizer.html`. Both pages are served
+directly from source. The former `/equity-chart.html` URL redirects to the optimizer.
 The optimizer's My profile menu opens its settings dialog on the same page.
 `optimizer_profile.js` adapts the shared settings scripts; `/api/profile/holdings`
 uses `portfolio_data.py` for saved-position data without importing archived UI code.
