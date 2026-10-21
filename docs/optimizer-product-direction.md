@@ -203,6 +203,14 @@ for the user's current conditional scenario-analysis use.
 Revisit the order as data coverage and user requirements become clearer; no dates
 or numerical risk limits have been agreed.
 
+## Next research item captured October 21, 2026
+
+Investigate intraday liquidity and trade timing: predict useful windows with
+narrower executable bid–ask spreads, considering size, freshness, both rollover
+legs and the cost of waiting. Start with data feasibility and a time-of-day
+baseline before ML. See [next-to-do specification](../TODO.md). Documentation
+only; implementation requires the next step-by-step instruction.
+
 ## Related documents
 
 - [Optimizer usage and algorithm](../COVERED_CALL_OPTIMIZER_README.md)
