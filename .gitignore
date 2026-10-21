@@ -22,7 +22,6 @@
 !/tests/test_public_close_refresh.py
 !/tests/test_public_option_premiums.py
 !/tests/test_public_stock_basis.py
-!/covered-call-optimizer.html
 !/tests/test_public_usd_premiums.py
 !/archive/
 /archive/*
@@ -38,6 +37,16 @@
 .tools/
 __pycache__/
 *.pyc
+.venv/
 
 # Independent model source; private outputs use models/.gitignore.
 !/models/
+!/frontend/
+!/tests/test_react_dashboard.py
+
+# FastAPI runtime and container configuration.
+!/requirements*.txt
+!/Dockerfile
+!/compose.yaml
+!/.dockerignore
+!/tests/test_fastapi.py

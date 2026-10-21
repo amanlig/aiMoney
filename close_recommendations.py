@@ -13,9 +13,9 @@ from fx_model import MODEL_DIR, predict
 import stock_basis
 
 HERE=Path(__file__).resolve().parent
-ROOT=HERE.parent
-DB=ROOT/'coveredCallOptimizer/data/fx-samples.sqlite3'
-CONFIG=ROOT/'coveredCallOptimizer/.secrets/openai.json'
+ROOT=HERE
+DB=ROOT/'data/fx-samples.sqlite3'
+CONFIG=ROOT/'.secrets/openai.json'
 GOALS={'free_cash':'Free cash for another investment','reduce_risk':'Reduce ASTS exposure and risk','keep_exposure':'Keep long-term ASTS exposure','compare':'Compare closing versus holding without a preferred outcome'}
 PROMPT_VERSION='covered-call-assessment-v1'
 INSTRUCTIONS='''Assess a covered-call closing scenario using only the supplied snapshot.
@@ -76,8 +76,8 @@ def snapshot(request,quotes=None):
     basis=stock_basis.get('RRSP','ASTS',path=DB)
     model=json.loads((MODEL_DIR/'artifacts/model.json').read_text())
     if quotes is None:
-        market=json.loads((ROOT/'coveredCallOptimizer/reports/market-details.json').read_text())
-        fx=json.loads((ROOT/'coveredCallOptimizer/reports/macro-data.json').read_text())
+        market=json.loads((ROOT/'reports/market-details.json').read_text())
+        fx=json.loads((ROOT/'reports/macro-data.json').read_text())
         option=next(r for r in market['options'] if r['symbol']=='ASTS' and r['expiry']==premium['expiry'] and float(r['strike'])==premium['strike'] and 'RRSP' in r['accounts'])
         quotes=dict(stock=market['stocks']['ASTS'],option=option,quote_time=market['captured_at'],reference=fx['cad_per_usd'],reference_time=fx['observed_at'])
     now=datetime.now(timezone.utc)
@@ -121,7 +121,7 @@ def history():
 
 def generate(request,quotes=None):
     key,model=configuration()
-    if not key:raise ConfigurationError('OpenAI is not configured. Run python3 coveredCallOptimizer/setup_openai.py in your terminal. Do not paste an API key into chat or the browser.')
+    if not key:raise ConfigurationError('OpenAI is not configured. Run python3 setup_openai.py in your terminal. Do not paste an API key into chat or the browser.')
     captured=snapshot(request,quotes)
     body=dict(model=model,instructions=INSTRUCTIONS,input=json.dumps(captured,allow_nan=False),store=False,max_output_tokens=4000)
     api_request=urllib.request.Request('https://api.openai.com/v1/responses',data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'},method='POST')

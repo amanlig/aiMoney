@@ -18,7 +18,7 @@ Run tests:
 python3 -m unittest discover -s models/financials/covered_call_exit/tests
 ```
 
-App: `http://localhost:8765/covered-call-optimizer.html`. Refresh retrieves Yahoo stock history and Questrade stock/options; saved captures are private ignored JSON under `coveredCallOptimizer/reports/exit-optimizer-ACCOUNT-SYMBOL.json`. Refresh uses the same server lock as the existing roll scanner to avoid simultaneous dashboard broker-token rotations.
+App: `http://localhost:8765/covered-call-optimizer`. Refresh retrieves Yahoo stock history and Questrade stock/options; saved captures are private ignored JSON under `coveredCallOptimizer/reports/exit-optimizer-ACCOUNT-SYMBOL.json`. Refresh uses the same server lock as the existing roll scanner to avoid simultaneous dashboard broker-token rotations.
 
 References: [Questrade option quotes](https://www.questrade.com/api/documentation/rest-operations/market-calls/markets-quotes-options), [OIC covered calls](https://www.optionseducation.org/strategies/all-strategies/covered-call-buy-write), [OIC assignment](https://www.optionseducation.org/referencelibrary/faq/options-assignment).
 

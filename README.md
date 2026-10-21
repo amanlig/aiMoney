@@ -1,6 +1,6 @@
 # coveredCallOptimizer
 
-A local Python/JavaScript dashboard for covered-call holdings. It includes account
+A local Python/React.js dashboard for covered-call holdings. It includes account
 and stock filters, Questrade bid/ask quotes and Greeks, editable purchase prices,
 minimum acceptable bids, stock-loss indicators and rollover payoff comparisons.
 LIRA defaults to USD; RRSP/TFSA default to CAD. Yahoo provides a USD/CAD macro
@@ -8,14 +8,25 @@ reference with a past-month chart. The separate USD optimizer provides local sto
 
 ## Run
 
-Requires Python 3.10+; Node is used for calculation checks. No Python packages
-are required for the current optimizer.
+Requires Python 3.12+ and the pinned FastAPI/Uvicorn dependencies in
+`requirements.txt`. Node is used for calculation checks.
+
+The active home page, optimizer, Profile / Settings and Recommendation panel use
+React with pinned local dependencies. Rebuild UI changes with
+`python frontend/build.py`; checked-in build artifacts work with the existing
+FastAPI server immediately. See [frontend setup](frontend/README.md) and
+[FastAPI / Docker setup](DOCKER.md).
 
 ```sh
-python3 coveredCallOptimizer/dashboard_server.py
+python3 -m pip install -r requirements.txt
+python3 dashboard_server.py
 ```
 
-Open http://localhost:8765/covered-call-optimizer.html. My profile / Settings is
+React calls FastAPI through `/api/` on the same origin. API documentation is at
+http://localhost:8765/docs. To run in Docker, use `docker compose up --build -d`
+after the local setup described in [DOCKER.md](DOCKER.md).
+
+Open http://localhost:8765/covered-call-optimizer. My profile / Settings is
 available there. Existing local records remain in `coveredCallOptimizer/data` and generated
 captures in `coveredCallOptimizer/reports`; no data migration is required.
 
@@ -57,7 +68,9 @@ fills. See [rollover details](ROLLOVER.md) and [physical architecture](ARCHITECT
 ## Public checks
 
 ```sh
+python3 -m pip install -r requirements-dev.txt
 python3 -m unittest discover -s tests -p 'test_public_*.py'
+python3 -m unittest discover -s tests -p test_fastapi.py
 node tests/test_public_calculations.js
 ```
 

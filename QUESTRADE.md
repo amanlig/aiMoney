@@ -7,7 +7,7 @@ authorization, selects the unique active account with type LIRA, retrieves its
 positions, validates the call deliverables, and captures stock bids/call asks.
 It replaces `data/lira-closing.json`, preserves a dated prior snapshot, saves a
 source report without account numbers, and regenerates the three-account page.
-Refresh http://localhost:8765/covered-call-optimizer.html to view the result. Refreshes are
+Refresh http://localhost:8765/covered-call-optimizer to view the result. Refreshes are
 manual, not scheduled or streamed. No FX input is required because LIRA stays USD.
 
 Use `--new-token` only when a new manual authorization token is needed, and

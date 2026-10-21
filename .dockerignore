@@ -1,0 +1,34 @@
+# Allow only application code, browser dependencies and model source.
+**
+!/*.py
+!/profile_settings.js
+!/requirements.txt
+!/frontend/
+!/frontend/**
+!/docs/
+!/docs/**
+!/models/
+!/models/**
+# Never bake private runtime material or Git history into image layers.
+**/.git
+**/.git/**
+**/.secrets
+**/.secrets/**
+**/data
+**/data/**
+**/reports
+**/reports/**
+**/artifacts
+**/artifacts/**
+**/evaluation
+**/evaluation/**
+**/__pycache__
+**/__pycache__/**
+**/*.pyc
+**/*.sqlite*
+**/*.db
+**/.env*
+**/.venv
+**/.venv/**
+**/node_modules
+**/node_modules/**

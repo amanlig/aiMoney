@@ -1,18 +1,21 @@
-# Covered-call optimizer architecture · proposed FastAPI boundary
+# Covered-call optimizer architecture · React.js UI and FastAPI boundary
 
-Updated October 20, 2026. This view covers the local portfolio application and
+Updated October 21, 2026. This view covers the local portfolio application and
 USD covered-call optimizer. The separate CIBC FX model and its training,
 evaluation and publishing workflows are excluded from this architecture view.
-**Design proposal only:** the diagram shows the intended FastAPI boundary. The
-running `dashboard_server.py` still uses Python’s built-in HTTP server; no
-application code or runtime behavior is changed by this architecture update.
+**Migration status:** the React.js dashboard now calls FastAPI in
+`dashboard_server.py`. Uvicorn serves the app, and Docker Compose packages the API
+and React build together. Pricing and application services remain independent.
 
-Main flow: **Dashboard → FastAPI (`dashboard_server.py`) → application adapter
+Main flow: **React.js dashboard → FastAPI (`dashboard_server.py`) → application adapter
 (`exit_optimizer.py`) → independent model (`model.py`)**. Results return through
 the adapter and API to the dashboard. Market access, persistence and OpenAI stay
 in the application; the model receives data and returns calculations.
 
 ![Investment app architecture](docs/physical-architecture.svg)
+
+The linked SVG and Mermaid diagrams show the implemented React.js → FastAPI
+boundary. FastAPI serves the local React build and JSON API on one origin.
 
 ## High-level system context
 
@@ -26,14 +29,55 @@ assessment. Trade execution remains outside the system.
 
 The dashboard, API, application services, independent pricing model, SQLite and
 saved captures are inside the system boundary. The lower panel expands those
-internal components and labels the FastAPI migration as proposed.
+internal components and the implemented FastAPI boundary.
+
+## Running Docker deployment
+
+Docker Desktop runs the Compose `api` service in WSL 2. The browser executes React;
+the container serves its build and handles JSON requests with FastAPI / Uvicorn.
+Host `127.0.0.1:8765` maps to container port `8765`. The app is available at
+`/covered-call-optimizer`, OpenAPI at `/docs`, and health status at `/api/health`.
+One non-root Uvicorn worker owns the lifespan-managed macro feed and in-process
+broker / assessment locks.
+
+Host `data/`, `reports/` and `.secrets/` bind into their matching `/app/` paths.
+They persist across container replacement and remain outside the image. Secrets
+are writable for Questrade refresh-token rotation. Optional CIBC FX artifacts
+mount read-only. Mount propagation is explicitly `rprivate` for Docker Desktop /
+WSL compatibility. The lower diagram panel shows the browser, container, external
+providers and host-storage boundaries. See [Docker setup](DOCKER.md).
+
+```mermaid
+flowchart TB
+    Browser[Browser: React.js]
+    Port[Host loopback: 127.0.0.1:8765]
+    subgraph Docker[Docker Compose api service: non-root / one worker]
+        API[FastAPI + Uvicorn: container port 8765]
+        Assets[Built React assets and architecture diagram]
+        Services[Application adapters / settings / recommendations]
+        Model[Independent pricing model]
+        API --> Services --> Model
+        API --> Assets
+    end
+    subgraph WSL[Persistent WSL host directories: outside image]
+        Data[(data/: holdings and SQLite)]
+        Reports[(reports/: saved captures)]
+        Secrets[.secrets/: broker and OpenAI configuration]
+    end
+    External[Questrade / Yahoo / OpenAI]
+    Browser -->|HTTP and JSON| Port --> API
+    Services <--> Data
+    Services <--> Reports
+    Secrets --> Services
+    Services <--> External
+```
 
 ## Responsibility boundaries
 
 | Boundary | Owns |
 | --- | --- |
-| Browser | Profile / Settings, optimizer chart, slider, Close/Expire controls and fixed quote reference |
-| `coveredCallOptimizer/` | Proposed FastAPI service, broker authentication, source data, validation, application adapters, persistence and existing optional OpenAI assessment workflow |
+| Browser · React.js dashboard | Component rendering, Profile / Settings forms, optimizer chart, slider, Close/Expire controls, fixed quote reference and UI state; calls the application JSON API |
+| Application container (`/app`) | FastAPI service, broker authentication, source data, validation, application adapters, persistence and existing optional OpenAI assessment workflow |
 | `models/financials/covered_call_exit/` | Independent option valuation, stock-return simulation, cash-flow calculations, rollover funding and ranking; no credentials, network calls or app server |
 | External services | Questrade market/position data, Yahoo market references/history, and OpenAI assessments only on explicit generation through the optimizer panel or separate worksheet |
 
@@ -43,15 +87,15 @@ flowchart TB
     Q[Questrade API: positions / stock and call quotes / Greeks / chain]
     Y[Yahoo: completed stock closes; separate dashboard reference feed]
     subgraph App["coveredCallOptimizer/ · application boundary"]
-        Server[Proposed FastAPI: dashboard_server.py · 127.0.0.1:8765]
-        Settings[Profile / Settings: stock basis and opening premiums]
-        UI[covered-call-optimizer.html]
+        Server[FastAPI: dashboard_server.py · 127.0.0.1:8765]
+        Settings[React Profile / Settings: stock basis and opening premiums]
+        UI[React.js dashboard: home and optimizer]
         Importers[questrade_positions / questrade_quotes / market_details / roll_candidates]
         Adapter[exit_optimizer.py: acquisition, input validation and model adapter]
         Basis[stock_basis.py / option_premiums.py]
         DB[(Shared SQLite: purchase basis / premiums / USD premium sales)]
         JSON[(Private holdings and capture JSON in data/ and reports/)]
-        BrowserState[Browser preferences / baseAnalysis / per-roll modes]
+        BrowserState[React state / browser preferences / baseAnalysis / per-roll modes]
         Rec[optimizer_recommendations.py: verify chart snapshot]
         Assess[optimizer_assessments.py: OpenAI client and saved history]
     end
@@ -93,13 +137,44 @@ flowchart TB
 
 ## Browser and application surfaces
 
+### React.js dashboard
+
+React.js owns the active dashboard UI: the home page, optimizer, Profile /
+Settings dialog, and Recommendation panel. Components render API results;
+React hooks and an API client manage requests, loading states, errors and
+refresh/scenario responses. Pricing, ranking, broker access, persistence and
+OpenAI calls remain in the Python application and independent model.
+
+The frontend source and build configuration live in `frontend/`. Run
+`python frontend/build.py` to copy source modules and pinned local React / React
+DOM / HTM dependencies into `frontend/dist/` and generate both entry pages.
+No Node toolchain or CDN is required. The current server serves built assets
+on the same loopback origin as `/api/*`; FastAPI will take over that responsibility.
+`/`, `/index.html`, `/covered-call-optimizer.html` and the existing
+`/equity-chart.html` redirect remain compatible entry URLs. API routes and
+archived pages stay distinct from frontend routing.
+
+React state holds the selected holding, slider value, immutable captured
+`baseAnalysis`, per-roll Close/Expire modes and request status. Local storage
+continues to hold browser preferences and supported overrides; SQLite remains
+authoritative for purchase and opening-premium records. Scenario responses must
+not replace the captured Close-today baseline, and stale responses must not
+overwrite the latest holding or slider selection. Close/Expire switches use
+precomputed alternatives locally. Rendering or remounting a component must not
+trigger a broker refresh or OpenAI assessment; those require explicit user actions.
+
+`frontend/src/App.js` owns optimizer state and requests; `Chart.js` renders the
+cash-flow SVG and mode controls, `Settings.js` owns the profile and both premium
+forms, and `Recommendations.js` owns assessments and history. `api.js` centralizes
+JSON requests. The archived equity dashboard stays outside this UI migration.
+
 ### Optimizer home page and Profile / Settings
 
 `index.html` is the landing page, served at `/` and `/index.html`, with a short
-introduction and a link to `covered-call-optimizer.html`. Both pages are served
-directly from source. The former `/equity-chart.html` URL redirects to the optimizer.
+introduction and a link to `covered-call-optimizer.html`. Both HTML files mount
+the locally built React application. The former `/equity-chart.html` URL redirects to the optimizer.
 The optimizer's My profile menu opens its settings dialog on the same page.
-`optimizer_profile.js` adapts the shared settings scripts; `/api/profile/holdings`
+The React settings component calls `/api/profile/holdings`, which
 uses `portfolio_data.py` for saved-position data without importing archived UI code.
 
 The former equity dashboard, renderer and dashboard-only JavaScript are preserved
@@ -115,8 +190,10 @@ form places an order. Verified records are shared with the optimizer through
 SQLite. Duplicate opening confirmations are checked across both premium formats.
 Multiple matching opening lots are not silently chosen or aggregated.
 
-`profile_ui.js`, `profile_settings.js` and `option_premiums_ui.js` implement these
-settings. Minimum bids, profile preferences and some entry overrides remain in
+React implements these settings and shares the pure `profile_settings.js`
+cost-basis calculation with the older UI. `profile_ui.js`, `optimizer_profile.js`
+and `option_premiums_ui.js` are no longer loaded by the active dashboard.
+Minimum bids, profile preferences and some entry overrides remain in
 browser storage; authoritative purchase records are in SQLite.
 
 ### USD covered-call optimizer
@@ -165,7 +242,7 @@ profit. See the [optimizer guide](COVERED_CALL_OPTIMIZER_README.md).
 ```mermaid
 sequenceDiagram
     actor Trader
-    participant UI as Optimizer browser
+    participant UI as React.js optimizer dashboard
     participant App as dashboard_server / exit_optimizer
     participant Local as SQLite + holdings / capture JSON
     participant Market as Questrade + Yahoo
@@ -190,14 +267,18 @@ sequenceDiagram
     Note over Trader,UI: Expire assumes worthless expiry and retained stock; it is not an order
 ```
 
-## Proposed FastAPI migration boundary
+## FastAPI boundary
 
-`dashboard_server.py` will become the HTTP entry point with typed request schemas,
-origin checks, response/error handling, static page/assets, and routes to the
+`dashboard_server.py` is the HTTP entry point with typed request schemas,
+origin checks, response/error handling, the built React page/assets, and routes to the
 existing app services. `exit_optimizer.py` remains the acquisition and model
 adapter; the API should not absorb broker or pricing logic. Model results return
-through the adapter and FastAPI to the dashboard. Endpoint ownership below
-remains the target contract; the framework migration has not started.
+through the adapter and FastAPI to the React.js dashboard. React consumes the
+existing JSON endpoints rather than importing Python services or accessing local
+data files directly. Saved captures use `GET /api/exit-optimizer/capture` with
+validated account and symbol query parameters. The API uses lifespan-managed Yahoo
+refresh, a single Uvicorn worker, bounded requests and structured JSON errors.
+[DOCKER.md](DOCKER.md) describes runtime mounts, startup and verification.
 
 Recommendations remain an application service: validate the selected capture,
 rebuild the model snapshot and send it to OpenAI. They do not move into `model.py`.
@@ -209,6 +290,7 @@ The same separation applies to settings and SQLite writes.
 | --- | --- |
 | `GET /api/profile/holdings` | Shared saved-position data for the optimizer profile dialog |
 | `GET /api/exit-optimizer/holdings` | Saved covered-call holdings available for selection |
+| `GET /api/exit-optimizer/capture` | Saved analysis for the selected account/symbol; no refresh |
 | `POST /api/exit-optimizer/run` | Explicit market refresh, model evaluation and saved capture |
 | `POST /api/exit-optimizer/scenario` | Local saved-snapshot stock-price scenario; no market refresh or persistence |
 | `GET/POST /api/stock-cost-basis` | Authoritative original purchase records |
@@ -279,11 +361,12 @@ design](models/financials/covered_call_exit/design1.md).
 From the repository root:
 
 ```sh
-python3 coveredCallOptimizer/dashboard_server.py
+python3 -m pip install -r requirements.txt
+python3 dashboard_server.py
 python3 coveredCallOptimizer/architecture_diagram.py
 ```
 
-Home: http://localhost:8765/covered-call-optimizer.html. The former dashboard is
+Home: http://localhost:8765/covered-call-optimizer. The former dashboard is
 archived at `coveredCallOptimizer/archive/equity-dashboard/equity-chart.html`. Architecture preview:
 http://localhost:8765/investment-architecture.svg.
 
@@ -296,7 +379,7 @@ The optimizer’s Recommendation button calls `POST /api/optimizer-recommendatio
 
 ```mermaid
 flowchart LR
-  Chart[Optimizer chart and exit modes] --> Button[Recommendation panel]
+  Chart[React optimizer chart and exit modes] --> Button[React Recommendation panel]
   Button --> Server[Dashboard server]
   Server --> Snapshot[Verified USD snapshot]
   Snapshot --> Model[Independent covered-call model]

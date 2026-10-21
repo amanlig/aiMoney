@@ -41,8 +41,8 @@ class RecommendationTests(unittest.TestCase):
 
     def test_server_recalculates_from_confirmed_records(self):
         with tempfile.TemporaryDirectory() as folder:
-            root=Path(folder);here=root/'models/financials/cibc_fx';(here/'artifacts').mkdir(parents=True);(root/'coveredCallOptimizer/data').mkdir(parents=True)
-            dbpath=root/'coveredCallOptimizer/data/samples.sqlite3'
+            root=Path(folder);here=root/'models/financials/cibc_fx';(here/'artifacts').mkdir(parents=True);(root/'data').mkdir(parents=True)
+            dbpath=root/'data/samples.sqlite3'
             with sqlite3.connect(dbpath) as db:
                 db.execute('CREATE TABLE option_premiums (account,symbol,expiry,strike,contracts,net_cad)')
                 db.execute("INSERT INTO option_premiums VALUES ('RRSP','ASTS','2028-01-21',40,5,29185.07)")

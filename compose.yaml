@@ -1,0 +1,38 @@
+services:
+  api:
+    build: .
+    init: true
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    ports:
+      - "127.0.0.1:8765:8765"
+    environment:
+      APP_ALLOWED_ORIGINS: "http://localhost:8765,http://127.0.0.1:8765"
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      - type: bind
+        source: ./reports
+        target: /app/reports
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      # Writable: Questrade rotates and persists its refresh token.
+      - type: bind
+        source: ./.secrets
+        target: /app/.secrets
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      - type: bind
+        source: ./models/financials/cibc_fx/artifacts
+        target: /app/models/financials/cibc_fx/artifacts
+        read_only: true
+        bind:
+          create_host_path: false
+          propagation: rprivate
+    restart: unless-stopped
+    stop_grace_period: 40s
