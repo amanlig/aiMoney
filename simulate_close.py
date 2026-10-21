@@ -6,7 +6,7 @@ from pathlib import Path
 
 HERE=Path(__file__).resolve().parent
 ROOT=HERE.parent
-MODEL_DIR=ROOT/'models/financials/cibc_fx'
+MODEL_DIR=HERE/'models/financials/cibc_fx'
 with sqlite3.connect((ROOT/'coveredCallOptimizer/data/fx-samples.sqlite3').resolve().as_uri()+'?mode=ro',uri=True) as db:
     db.row_factory=sqlite3.Row
     premium=dict(db.execute("SELECT * FROM option_premiums WHERE account='RRSP' AND symbol='ASTS' AND expiry='2028-01-21' AND strike=40 AND contracts=5 ORDER BY settlement_date DESC LIMIT 1").fetchone())

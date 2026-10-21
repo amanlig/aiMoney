@@ -88,8 +88,8 @@ and holding settings remain separate from the SQLite dataset.
 
 ## Financial models
 
-New model projects live under [`../models/financials/`](../models/financials/README.md).
-The CIBC FX model workspace is [`cibc_fx/`](../models/financials/cibc_fx/README.md).
+New model projects live under [`models/financials/`](models/financials/README.md).
+The CIBC FX model workspace is [`cibc_fx/`](models/financials/cibc_fx/README.md).
 Reviewed transaction data stays in `data/fx-samples.sqlite3`; model training must
 read it without modifying the saved samples.
 

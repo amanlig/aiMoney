@@ -271,8 +271,8 @@ and evidence of improvement before promotion. The independent model/app boundary
 allows such replacements without moving authentication into model packages.
 
 See [product direction](docs/optimizer-product-direction.md), [current model
-design](../models/financials/covered_call_exit/DESIGN.md) and [proposed TFT
-design](../models/financials/covered_call_exit/design1.md).
+design](models/financials/covered_call_exit/DESIGN.md) and [proposed TFT
+design](models/financials/covered_call_exit/design1.md).
 
 ## Run and regenerate the view
 

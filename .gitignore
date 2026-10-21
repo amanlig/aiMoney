@@ -38,3 +38,6 @@
 .tools/
 __pycache__/
 *.pyc
+
+# Independent model source; private outputs use models/.gitignore.
+!/models/

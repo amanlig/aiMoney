@@ -206,6 +206,6 @@ or numerical risk limits have been agreed.
 ## Related documents
 
 - [Optimizer usage and algorithm](../COVERED_CALL_OPTIMIZER_README.md)
-- [Current model design](../../models/financials/covered_call_exit/DESIGN.md)
-- [Proposed TFT architecture](../../models/financials/covered_call_exit/design1.md)
+- [Current model design](../models/financials/covered_call_exit/DESIGN.md)
+- [Proposed TFT architecture](../models/financials/covered_call_exit/design1.md)
 - [Investment architecture](../ARCHITECTURE.md)

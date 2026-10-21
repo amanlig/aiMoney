@@ -14,7 +14,7 @@ import option_premiums
 from roll_candidates import INPUTS, listed_calls
 
 ROOT=Path(__file__).resolve().parent
-spec=importlib.util.spec_from_file_location('covered_call_exit_model',ROOT.parent/'models/financials/covered_call_exit/model.py')
+spec=importlib.util.spec_from_file_location('covered_call_exit_model',ROOT/'models/financials/covered_call_exit/model.py')
 model=importlib.util.module_from_spec(spec);spec.loader.exec_module(model)
 
 def holdings():
