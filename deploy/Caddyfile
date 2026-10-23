@@ -1,0 +1,10 @@
+{$APP_DOMAIN} {
+    basic_auth {
+        {$AUTH_USER} {$AUTH_HASH}
+    }
+
+    reverse_proxy api:8765 {
+        # The application uses server-side provider credentials, not this login.
+        header_up -Authorization
+    }
+}

@@ -17,7 +17,7 @@ in the application; the model receives data and returns calculations.
 ## Proposed AWS deployment · manual setup
 
 The diagram above depicts the agreed deployment target. **AWS is not deployed
-and Caddy / S3 backup uploads are not configured yet.** The current local runtime
+and the Caddy deployment configuration is prepared but not running in AWS; S3 backup uploads are not configured yet.** See [manual deployment files](deploy/README.md). The current local runtime
 has two containers: application and PostgreSQL. The existing local architecture
 and runtime details continue below.
 

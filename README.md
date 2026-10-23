@@ -6,6 +6,12 @@ minimum acceptable bids, stock-loss indicators and rollover payoff comparisons.
 LIRA defaults to USD; RRSP/TFSA default to CAD. Yahoo provides a USD/CAD macro
 reference with a past-month chart. The separate USD optimizer provides local stock-price scenarios, top-three rollover comparisons, Close/Expire outcomes and estimated rollover funding.
 
+## AWS deployment
+
+Manual single-EC2 deployment in us-west-2: [setup guide](deploy/README.md).
+The separate `compose.aws.yaml` adds Caddy HTTPS and login; `compose.yaml`
+continues to run the local application.
+
 ## Database
 
 Docker Compose now uses PostgreSQL in a separate container with persistent storage.

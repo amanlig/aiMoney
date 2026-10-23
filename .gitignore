@@ -52,3 +52,7 @@ __pycache__/
 !/tests/test_fastapi.py
 
 !/tests/test_postgres.py
+
+# Manual EC2 deployment source (credentials remain ignored).
+!/compose.aws.yaml
+!/deploy/

@@ -1,0 +1,67 @@
+# Standalone cloud stack; local compose.yaml remains independent.
+# Run with: docker compose --env-file .env.aws -f compose.aws.yaml ...
+services:
+  api:
+    image: ${APP_IMAGE:-aimoney:latest}
+    build: .
+    init: true
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://aimoney:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.aws}@db:5432/aimoney
+      APP_ALLOWED_ORIGINS: https://${APP_DOMAIN:?Set APP_DOMAIN to the full hostname}
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+      - ./.secrets:/app/.secrets
+      - ./models/financials/cibc_fx/artifacts:/app/models/financials/cibc_fx/artifacts:ro
+    restart: unless-stopped
+    stop_grace_period: 40s
+    logging: &logging
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  db:
+    image: postgres:17.6-bookworm
+    environment:
+      POSTGRES_DB: aimoney
+      POSTGRES_USER: aimoney
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.aws}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U aimoney -d aimoney]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    stop_grace_period: 60s
+    logging: *logging
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN to the full hostname}
+      AUTH_USER: ${AUTH_USER:?Set AUTH_USER in .env.aws}
+      AUTH_HASH: ${AUTH_HASH:?Set a bcrypt AUTH_HASH in .env.aws}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
