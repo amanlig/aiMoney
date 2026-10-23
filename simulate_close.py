@@ -1,14 +1,13 @@
 """Build a private standalone covered-call closing cash-flow visualization."""
 import json
-import sqlite3
+from database import connect
 import stock_basis
 from pathlib import Path
 
 HERE=Path(__file__).resolve().parent
 ROOT=HERE.parent
 MODEL_DIR=HERE/'models/financials/cibc_fx'
-with sqlite3.connect((ROOT/'coveredCallOptimizer/data/fx-samples.sqlite3').resolve().as_uri()+'?mode=ro',uri=True) as db:
-    db.row_factory=sqlite3.Row
+with connect(readonly=True) as db:
     premium=dict(db.execute("SELECT * FROM option_premiums WHERE account='RRSP' AND symbol='ASTS' AND expiry='2028-01-21' AND strike=40 AND contracts=5 ORDER BY settlement_date DESC LIMIT 1").fetchone())
 basis=stock_basis.get('RRSP','ASTS')
 market=json.loads((ROOT/'coveredCallOptimizer/reports/market-details.json').read_text())
@@ -128,8 +127,8 @@ function renderSources(){
   ['Stock bid',Number($('bid').value)===data.stock.bidPrice?`${data.quote_source} · saved stock bid`:'Manual scenario override'],
   ['Call ask',Number($('ask').value)===data.option.askPrice?`${data.quote_source} · exact held call: ASTS $40, January 21, 2028`:'Manual scenario override'],
   ['Reference FX input (not a model prediction)',Number($('reference').value)===data.reference?`${data.reference_source} · CAD=X reference`:'Manual scenario override'],
-  ['Stock cost basis',`CIBC purchase confirmation · ${data.basis.date} · SQLite stock_cost_basis record ${data.basis.id}`],
-  ['Opening call premium',`CIBC sale confirmation · ${data.premium.settlement_date} · SQLite option_premiums record ${data.premium.id}`],
+  ['Stock cost basis',`CIBC purchase confirmation · ${data.basis.date} · Database stock_cost_basis record ${data.basis.id}`],
+  ['Opening call premium',`CIBC sale confirmation · ${data.premium.settlement_date} · Database option_premiums record ${data.premium.id}`],
   ['Predicted CIBC FX outputs',`Local cibc_fx model · fitted ${data.model.trained_at.slice(0,10)} · ${data.model.samples} reviewed CIBC transaction samples with Yahoo settlement-day references`],
   ['Closing fees','User-entered estimates; not fetched from CIBC or Questrade'],
   ['Conversion treatment','User-selected assumption; not confirmed by a CIBC API']

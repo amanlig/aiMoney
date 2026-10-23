@@ -1,4 +1,5 @@
-"""Local OCR and SQLite dataset for reviewed FX transactions."""
+"""Local OCR and database dataset for reviewed FX transactions."""
+from database_schema import SCHEMA
 from datetime import date, datetime, timezone
 import hashlib
 import json
@@ -7,7 +8,7 @@ import os
 from pathlib import Path
 import re
 import shutil
-import sqlite3
+from database import connect as database_connect, INTEGRITY_ERRORS
 import subprocess
 import tempfile
 import urllib.request
@@ -17,16 +18,8 @@ DB = ROOT / 'data/fx-samples.sqlite3'
 
 
 def connect(path=DB):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=10)
-    db.row_factory = sqlite3.Row
-    db.execute('''CREATE TABLE IF NOT EXISTS samples (
-        id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, account TEXT NOT NULL,
-        symbol TEXT NOT NULL, instrument TEXT NOT NULL, action TEXT NOT NULL,
-        direction TEXT NOT NULL, trade_date TEXT, settlement_date TEXT NOT NULL,
-        usd_amount REAL NOT NULL, commission_usd REAL, cad_amount REAL NOT NULL,
-        applied_rate REAL NOT NULL, yahoo_close REAL, yahoo_status TEXT NOT NULL,
-        notes TEXT NOT NULL, fingerprint TEXT NOT NULL UNIQUE)''')
+    db = database_connect(path)
+    db.execute(SCHEMA['samples'])
     return db
 
 
@@ -100,10 +93,10 @@ def save(data, path=DB, lookup=yahoo_close):
     with connect(path) as db:
         columns = list(value)
         try:
-            cursor = db.execute(f'INSERT INTO samples ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})', [value[k] for k in columns])
-        except sqlite3.IntegrityError:
+            record_id = db.insert_id(f'INSERT INTO samples ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})', [value[k] for k in columns])
+        except INTEGRITY_ERRORS:
             raise ValueError('This transaction is already saved.') from None
-        return dict(db.execute('SELECT * FROM samples WHERE id=?', (cursor.lastrowid,)).fetchone())
+        return dict(db.execute('SELECT * FROM samples WHERE id=?', (record_id,)).fetchone())
 
 
 def extract_fields(text, *, default_stock=True):
@@ -161,7 +154,7 @@ def ocr(image):
     if local.exists():
         env['LD_LIBRARY_PATH'] = str(local / 'lib/x86_64-linux-gnu')
         env['TESSDATA_PREFIX'] = str(local / 'share/tesseract-ocr/5/tessdata')
-    # Temporary image is removed even on OCR failure; it is never written to SQLite.
+    # Temporary image is removed even on OCR failure; it is never written to the database.
     with tempfile.TemporaryDirectory(prefix='investment-ocr-') as directory:
         source = Path(directory) / 'confirmation'
         source.write_bytes(image)

@@ -1,20 +1,15 @@
 """Reviewed opening call premiums stored separately from FX training samples."""
+from database_schema import SCHEMA
 from datetime import date, datetime, timezone
 import math
 import re
-import sqlite3
+from database import connect as database_connect, INTEGRITY_ERRORS
 from fx_samples import DB, connect as sample_connect
 
 
 def connect(path=DB):
     db=sample_connect(path)
-    db.execute('''CREATE TABLE IF NOT EXISTS option_premiums (
-        id INTEGER PRIMARY KEY, account TEXT NOT NULL, symbol TEXT NOT NULL,
-        expiry TEXT NOT NULL, strike REAL NOT NULL, contracts INTEGER NOT NULL,
-        settlement_date TEXT NOT NULL, price_usd REAL NOT NULL,
-        fees_usd REAL NOT NULL, fx REAL NOT NULL, net_cad REAL NOT NULL,
-        net_usd REAL NOT NULL, created_at TEXT NOT NULL,
-        UNIQUE(account,symbol,expiry,strike,contracts,settlement_date))''')
+    db.execute(SCHEMA['option_premiums'])
     return db
 
 
@@ -52,16 +47,16 @@ def save(data,path=DB):
     with connect(path) as db:
         try:
             columns=list(value)
-            cursor=db.execute(f'INSERT INTO option_premiums ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})',[value[k] for k in columns])
-        except sqlite3.IntegrityError:
+            record_id=db.insert_id(f'INSERT INTO option_premiums ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})',[value[k] for k in columns])
+        except INTEGRITY_ERRORS:
             raise ValueError('This opening premium is already recorded.') from None
-        return dict(db.execute('SELECT * FROM option_premiums WHERE id=?',(cursor.lastrowid,)).fetchone())
+        return dict(db.execute('SELECT * FROM option_premiums WHERE id=?',(record_id,)).fetchone())
 
 
 def usd_records(path=DB):
     """USD-only confirmations; legacy converted confirmations remain unchanged."""
     with connect(path) as db:
-        exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='option_premium_sales_usd'").fetchone()
+        exists=db.table_exists('option_premium_sales_usd')
         return [dict(r) for r in db.execute('SELECT * FROM option_premium_sales_usd ORDER BY settlement_date DESC,id DESC')] if exists else []
 
 
@@ -89,16 +84,11 @@ def save_usd(data,path=DB):
         if (r['account'],r['symbol'],r['expiry'],r['strike'],r['contracts'],r['settlement_date'])==(account,symbol,expiry,strike,contracts,settlement):
             raise ValueError('This opening premium is already recorded.')
     with connect(path) as db:
-        db.execute('''CREATE TABLE IF NOT EXISTS option_premium_sales_usd (
-          id INTEGER PRIMARY KEY, account TEXT NOT NULL, symbol TEXT NOT NULL,
-          expiry TEXT NOT NULL, strike REAL NOT NULL, contracts INTEGER NOT NULL,
-          settlement_date TEXT NOT NULL, price_usd REAL NOT NULL, gross_usd REAL NOT NULL,
-          created_at TEXT NOT NULL,
-          UNIQUE(account,symbol,expiry,strike,contracts,settlement_date))''')
+        db.execute(SCHEMA['option_premium_sales_usd'])
         try:
-            cursor=db.execute('''INSERT INTO option_premium_sales_usd
+            record_id=db.insert_id('''INSERT INTO option_premium_sales_usd
               (account,symbol,expiry,strike,contracts,settlement_date,price_usd,gross_usd,created_at)
               VALUES (?,?,?,?,?,?,?,?,?)''',(account,symbol,expiry,strike,contracts,settlement,price,gross,datetime.now(timezone.utc).isoformat()))
-        except sqlite3.IntegrityError:
+        except INTEGRITY_ERRORS:
             raise ValueError('This opening premium is already recorded.') from None
-        return dict(db.execute('SELECT * FROM option_premium_sales_usd WHERE id=?',(cursor.lastrowid,)).fetchone())
+        return dict(db.execute('SELECT * FROM option_premium_sales_usd WHERE id=?',(record_id,)).fetchone())

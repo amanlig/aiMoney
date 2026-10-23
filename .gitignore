@@ -50,3 +50,5 @@ __pycache__/
 !/compose.yaml
 !/.dockerignore
 !/tests/test_fastapi.py
+
+!/tests/test_postgres.py

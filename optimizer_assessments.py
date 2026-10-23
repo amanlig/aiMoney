@@ -1,10 +1,11 @@
 """Independent OpenAI assessments with deterministic calculations and local history."""
+from database_schema import SCHEMA
 from datetime import datetime, timezone
 import json
 import math
 import os
 from pathlib import Path
-import sqlite3
+from database import connect as database_connect
 import sys
 import urllib.error
 import urllib.request
@@ -52,12 +53,8 @@ def status():
 
 
 def connect():
-    db=sqlite3.connect(DB,timeout=10)
-    db.row_factory=sqlite3.Row
-    db.execute('''CREATE TABLE IF NOT EXISTS recommendation_runs (
-      id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, model TEXT NOT NULL,
-      prompt_version TEXT NOT NULL, snapshot_json TEXT NOT NULL,
-      assessment TEXT NOT NULL, response_id TEXT, usage_json TEXT NOT NULL)''')
+    db=database_connect(DB)
+    db.execute(SCHEMA['recommendation_runs'])
     return db
 
 
@@ -82,6 +79,6 @@ def generate(captured):
     if not text:raise AssessmentError('OpenAI returned no assessment. No assessment was saved.')
     actual_model=result.get('model',model)
     with connect() as db:
-        cursor=db.execute('INSERT INTO recommendation_runs (created_at,model,prompt_version,snapshot_json,assessment,response_id,usage_json) VALUES (?,?,?,?,?,?,?)',
+        record_id=db.insert_id('INSERT INTO recommendation_runs (created_at,model,prompt_version,snapshot_json,assessment,response_id,usage_json) VALUES (?,?,?,?,?,?,?)',
           (captured['created_at'],actual_model,PROMPT_VERSION,json.dumps(captured,allow_nan=False),text,result.get('id'),json.dumps(result.get('usage',{}))))
-    return dict(id=cursor.lastrowid,created_at=captured['created_at'],model=actual_model,prompt_version=PROMPT_VERSION,snapshot=captured,assessment=text)
+    return dict(id=record_id,created_at=captured['created_at'],model=actual_model,prompt_version=PROMPT_VERSION,snapshot=captured,assessment=text)

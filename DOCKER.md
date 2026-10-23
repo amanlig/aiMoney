@@ -22,6 +22,13 @@ http://localhost:8765/covered-call-optimizer. `python dashboard_server.py --port
 
 ## Docker Compose
 
+The deployment now includes PostgreSQL. Set `POSTGRES_PASSWORD` in the untracked
+`.env` file and follow [PostgreSQL migration](POSTGRESQL.md) before starting the
+updated application against existing records. The `postgres_data` named volume
+persists database records; `data/` retains holdings JSON and the legacy SQLite source.
+Do not delete the database volume when replacing containers.
+
+
 Docker Engine with Compose v2, or Docker Desktop with integration enabled for the
 active WSL distribution, is required. Check `docker version` and `docker compose
 version` from the Linux terminal.
@@ -68,7 +75,7 @@ A single Uvicorn worker owns the periodic Yahoo feed and shared broker/OpenAI
 locks. Do not add workers or replicas without replacing these in-process locks
 with coordination across processes. Shutdown stops the feed through FastAPI's
 lifespan hook. Mutation requests retain origin checks and body-size limits;
-blocking broker, model, SQLite and OpenAI services run in FastAPI's thread pool.
+blocking broker, model, database and OpenAI services run in FastAPI's thread pool.
 The UI never receives credentials. OCR uses Tesseract installed in the image.
 
 ## Verification

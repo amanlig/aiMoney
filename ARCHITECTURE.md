@@ -1,6 +1,6 @@
 # Covered-call optimizer architecture · React.js UI and FastAPI boundary
 
-Updated October 21, 2026. This view covers the local portfolio application and
+Updated October 23, 2026. This view covers the local portfolio application and
 USD covered-call optimizer. The separate CIBC FX model and its training,
 evaluation and publishing workflows are excluded from this architecture view.
 **Migration status:** the React.js dashboard now calls FastAPI in
@@ -12,10 +12,44 @@ Main flow: **React.js dashboard → FastAPI (`dashboard_server.py`) → applicat
 the adapter and API to the dashboard. Market access, persistence and OpenAI stay
 in the application; the model receives data and returns calculations.
 
-![Investment app architecture](docs/physical-architecture.svg)
+![Proposed AWS deployment](docs/physical-architecture.svg)
 
-The linked SVG and Mermaid diagrams show the implemented React.js → FastAPI
-boundary. FastAPI serves the local React build and JSON API on one origin.
+## Proposed AWS deployment · manual setup
+
+The diagram above depicts the agreed deployment target. **AWS is not deployed
+and Caddy / S3 backup uploads are not configured yet.** The current local runtime
+has two containers: application and PostgreSQL. The existing local architecture
+and runtime details continue below.
+
+- **Route 53:** an A record for a chosen subdomain points to an EC2 Elastic IP.
+  DNS resolves the address; subsequent HTTPS traffic goes directly to EC2.
+- **Elastic IP:** fixed public IPv4 retained across EC2 stop/start.
+- **EC2:** one Linux instance running Docker Compose; initial sizing is 2 vCPU / 4 GB.
+- **Caddy container, planned:** `caddy:2` image, public ports 80 / 443, TLS termination
+  and renewal, forwarding to `api:8765`. Certificate volumes persist on EBS.
+- **Application container:** versioned `aimoney` image built from the Dockerfile;
+  serves React assets and FastAPI, application services and the independent model.
+  React executes in the browser. One Uvicorn worker remains required.
+- **PostgreSQL container:** `postgres:17.6-bookworm` image; `db:5432` is accessible
+  only inside the Docker network. The database has no public port mapping.
+- **EBS:** encrypted persistent database volume, holdings/captures, server credentials
+  and Caddy state. Stop EC2 between sessions; keep the disk and Elastic IP.
+- **S3, planned:** private off-instance PostgreSQL backups; restore checks remain required.
+- **External services:** Questrade for broker data, Yahoo for stock history / FX
+  references, and OpenAI for explicitly requested assessments. No order execution.
+
+Three images produce three containers on **one EC2 instance**. The diagram uses
+AWS service icons plus Docker, PostgreSQL, React, FastAPI and Caddy icons; external
+providers have labeled text badges. Dashed component boxes identify additions.
+Image artifacts are shown separately from running containers.
+
+Before public access, configure login / authorization, HTTPS, FastAPI origins and
+trusted proxy behavior. Restrict EC2 ingress to the chosen web / management paths;
+application port 8765 and database port 5432 remain private. No Amplify, ECS, RDS,
+load balancer or NAT gateway is needed for this deployment.
+
+Regenerate with `python3 architecture_diagram.py`. The SVG embeds its icons and
+can be shared offline; [icon sources and licenses](docs/icons/README.md) are retained.
 
 ## High-level system context
 
@@ -27,7 +61,7 @@ Questrade supplies broker market/position data; Yahoo supplies historical stock
 closes; OpenAI receives a selected snapshot and returns an explicitly requested
 assessment. Trade execution remains outside the system.
 
-The dashboard, API, application services, independent pricing model, SQLite and
+The dashboard, API, application services, independent pricing model, PostgreSQL and
 saved captures are inside the system boundary. The lower panel expands those
 internal components and the implemented FastAPI boundary.
 
@@ -39,6 +73,9 @@ Host `127.0.0.1:8765` maps to container port `8765`. The app is available at
 `/covered-call-optimizer`, OpenAPI at `/docs`, and health status at `/api/health`.
 One non-root Uvicorn worker owns the lifespan-managed macro feed and in-process
 broker / assessment locks.
+
+A separate Compose `db` container runs PostgreSQL with the `postgres_data` named
+volume. The database port is private to the Compose network. See [migration](POSTGRESQL.md).
 
 Host `data/`, `reports/` and `.secrets/` bind into their matching `/app/` paths.
 They persist across container replacement and remain outside the image. Secrets
@@ -60,13 +97,16 @@ flowchart TB
         API --> Assets
     end
     subgraph WSL[Persistent WSL host directories: outside image]
-        Data[(data/: holdings and SQLite)]
+        Data[(data/: holdings and legacy SQLite)]
+        PGData[(postgres_data: database volume)]
         Reports[(reports/: saved captures)]
         Secrets[.secrets/: broker and OpenAI configuration]
     end
     External[Questrade / Yahoo / OpenAI]
     Browser -->|HTTP and JSON| Port --> API
     Services <--> Data
+    Services --> PG[PostgreSQL: separate db container]
+    PG <--> PGData
     Services <--> Reports
     Secrets --> Services
     Services <--> External
@@ -93,7 +133,7 @@ flowchart TB
         Importers[questrade_positions / questrade_quotes / market_details / roll_candidates]
         Adapter[exit_optimizer.py: acquisition, input validation and model adapter]
         Basis[stock_basis.py / option_premiums.py]
-        DB[(Shared SQLite: purchase basis / premiums / USD premium sales)]
+        DB[(Shared PostgreSQL: purchase basis / premiums / USD premium sales)]
         JSON[(Private holdings and capture JSON in data/ and reports/)]
         BrowserState[React state / browser preferences / baseAnalysis / per-roll modes]
         Rec[optimizer_recommendations.py: verify chart snapshot]
@@ -156,7 +196,7 @@ archived pages stay distinct from frontend routing.
 
 React state holds the selected holding, slider value, immutable captured
 `baseAnalysis`, per-roll Close/Expire modes and request status. Local storage
-continues to hold browser preferences and supported overrides; SQLite remains
+continues to hold browser preferences and supported overrides; PostgreSQL remains
 authoritative for purchase and opening-premium records. Scenario responses must
 not replace the captured Close-today baseline, and stale responses must not
 overwrite the latest holding or slider selection. Close/Expire switches use
@@ -187,14 +227,14 @@ Profile / Settings owns stock cost basis and original option sale capture. The
 USD-only form records an exact opening sale without requiring CAD conversion.
 The existing converted-premium form is an optional settings section. Neither
 form places an order. Verified records are shared with the optimizer through
-SQLite. Duplicate opening confirmations are checked across both premium formats.
+PostgreSQL. Duplicate opening confirmations are checked across both premium formats.
 Multiple matching opening lots are not silently chosen or aggregated.
 
 React implements these settings and shares the pure `profile_settings.js`
 cost-basis calculation with the older UI. `profile_ui.js`, `optimizer_profile.js`
 and `option_premiums_ui.js` are no longer loaded by the active dashboard.
 Minimum bids, profile preferences and some entry overrides remain in
-browser storage; authoritative purchase records are in SQLite.
+browser storage; authoritative purchase records are in PostgreSQL.
 
 ### USD covered-call optimizer
 
@@ -244,7 +284,7 @@ sequenceDiagram
     actor Trader
     participant UI as React.js optimizer dashboard
     participant App as dashboard_server / exit_optimizer
-    participant Local as SQLite + holdings / capture JSON
+    participant Local as PostgreSQL + holdings / capture JSON
     participant Market as Questrade + Yahoo
     participant Model as Independent covered_call_exit model
     Trader->>UI: Refresh data & analyze
@@ -282,7 +322,7 @@ refresh, a single Uvicorn worker, bounded requests and structured JSON errors.
 
 Recommendations remain an application service: validate the selected capture,
 rebuild the model snapshot and send it to OpenAI. They do not move into `model.py`.
-The same separation applies to settings and SQLite writes.
+The same separation applies to settings and PostgreSQL writes.
 
 ## API ownership
 
@@ -311,7 +351,7 @@ saved market capture. A page reload alone does not refresh broker quotes.
 
 | Store | Purpose |
 | --- | --- |
-| `coveredCallOptimizer/data/fx-samples.sqlite3` | Existing shared file name; purchase/premium tables used by this view are listed below |
+| PostgreSQL `aimoney` database / `postgres_data` volume | Shared purchase, premium, FX sample and recommendation tables; legacy SQLite source retained for rollback |
 | `stock_cost_basis` | Account/symbol/currency, quantity, recorded USD purchase price, cost and optional transaction details |
 | `option_premiums` | Existing confirmed opening sales with contract identity and conversion details |
 | `option_premium_sales_usd` | USD-only reviewed opening sales; created lazily on first save |
@@ -375,7 +415,7 @@ reports remain local and ignored by Git. No order execution is performed.
 
 ### Optimizer recommendation path
 
-The optimizer’s Recommendation button calls `POST /api/optimizer-recommendations` on the dashboard server. `optimizer_recommendations.py` verifies the selected holding and quote-capture timestamp, recalculates the slider scenario with the independent covered-call model, preserves the captured close-today baseline, and applies the chart’s exit modes. `optimizer_assessments.py` sends that snapshot to the configured OpenAI model and saves successful responses plus inputs in SQLite `recommendation_runs` (`optimizer-assessment-v1`). Status and history are served by `/api/optimizer-recommendations/status` and `/api/optimizer-recommendations/history`. The model remains independent of OpenAI and currency conversion.
+The optimizer’s Recommendation button calls `POST /api/optimizer-recommendations` on the dashboard server. `optimizer_recommendations.py` verifies the selected holding and quote-capture timestamp, recalculates the slider scenario with the independent covered-call model, preserves the captured close-today baseline, and applies the chart’s exit modes. `optimizer_assessments.py` sends that snapshot to the configured OpenAI model and saves successful responses plus inputs in PostgreSQL `recommendation_runs` (`optimizer-assessment-v1`). Status and history are served by `/api/optimizer-recommendations/status` and `/api/optimizer-recommendations/history`. The model remains independent of OpenAI and currency conversion.
 
 ```mermaid
 flowchart LR
@@ -384,6 +424,6 @@ flowchart LR
   Server --> Snapshot[Verified USD snapshot]
   Snapshot --> Model[Independent covered-call model]
   Snapshot --> API[OpenAI Responses API]
-  API --> DB[(SQLite recommendation_runs)]
+  API --> DB[(PostgreSQL recommendation_runs)]
   DB --> Button
 ```

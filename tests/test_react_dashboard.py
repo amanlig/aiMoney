@@ -173,16 +173,16 @@ class ReactDashboardTests(unittest.TestCase):
         self.page.get_by_text('Quotes refreshed. Chart updated.').wait_for()
         self.assertEqual(sum(path == 'exit-optimizer/run' for path, _ in self.posts), 1)
 
-    def test_settings_sqlite_payload_and_usd_premium(self):
+    def test_settings_database_payload_and_usd_premium(self):
         self.open_dashboard()
         self.page.get_by_role('button', name='My profile').click()
         self.page.get_by_role('button', name='Settings', exact=True).click()
-        self.page.get_by_text('Stock cost basis is shared through SQLite.', exact=False).wait_for()
+        self.page.get_by_text('Stock cost basis is shared in the database.', exact=False).wait_for()
         self.page.get_by_label('Profile name', exact=True).fill('Test trader')
         self.page.get_by_label('RRSP TEST Purchase shares', exact=True).fill('100')
         self.page.get_by_label('RRSP TEST USD price / share', exact=True).fill('21')
         self.page.get_by_role('button', name='Save settings', exact=True).click()
-        self.page.get_by_text('Stock basis saved in SQLite. Profile and thresholds saved in this browser.').wait_for()
+        self.page.get_by_text('Stock basis saved in the database. Profile and thresholds saved in this browser.').wait_for()
         basis = next(body for path, body in self.posts if path == 'stock-cost-basis')['bases'][0]
         self.assertEqual(basis['totalCost'], 2100)
         self.assertEqual(basis['priceUsd'], 21)
@@ -192,7 +192,7 @@ class ReactDashboardTests(unittest.TestCase):
         form.get_by_label('Premium sold (USD/share)', exact=True).fill('2.5')
         form.get_by_role('checkbox').check()
         form.get_by_role('button', name='Save opening premium').click()
-        form.get_by_text('Opening sale saved in SQLite. Refresh the optimizer analysis to apply it.').wait_for()
+        form.get_by_text('Opening sale saved in the database. Refresh the optimizer analysis to apply it.').wait_for()
         premium = next(body for path, body in self.posts if path == 'option-premiums/usd')
         self.assertEqual(premium['contracts'], 1)
         self.assertEqual(premium['price_usd'], 2.5)
@@ -203,7 +203,7 @@ class ReactDashboardTests(unittest.TestCase):
             converted.get_by_label(label, exact=True).fill(value)
         converted.get_by_role('checkbox').check()
         converted.get_by_role('button', name='Save opening premium').click()
-        converted.get_by_text('Opening sale saved in SQLite. Refresh the optimizer analysis to apply it.').wait_for()
+        converted.get_by_text('Opening sale saved in the database. Refresh the optimizer analysis to apply it.').wait_for()
         converted_payload = next(body for path, body in self.posts if path == 'option-premiums')
         self.assertEqual(converted_payload['fees_usd'], 1)
         self.assertEqual(converted_payload['net_cad'], 336.15)

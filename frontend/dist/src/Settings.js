@@ -29,7 +29,7 @@ export function Settings({onClose, onName}) {
       const converted = entry?.stockPrice != null ? entry.stockPrice * (entry.currency === a.currency ? 1 : entry.entryFx) : null;
       return {a, p, purchase: basis?.averageCost ?? converted ?? (p.cost === null ? '' : p.cost / p.shares), minimum: preference?.minimumBid ?? '', fx: basis?.fx ?? entry?.entryFx ?? p.entryFx ?? '', date: basis?.date || '', quantity: basis?.quantity ?? '', priceUsd: basis?.priceUsd ?? '', feesUsd: basis?.feesUsd ?? '', cadTotal: basis?.cadTotal ?? ''};
     })));
-    setReady(true); setStatus('Stock cost basis is shared through SQLite. Profile and minimum bids are browser preferences.');
+    setReady(true); setStatus('Stock cost basis is shared in the database. Profile and minimum bids are browser preferences.');
   }
   useEffect(() => {dialog.current.showModal(); load().catch(e => setStatus(e.message));}, []);
   const change = (index, field, value) => setRows(old => old.map((row, i) => i === index ? {...row, [field]: value} : row));
@@ -59,8 +59,8 @@ export function Settings({onClose, onName}) {
           totalCost: basis && a.currency === 'CAD' ? basis.cadTotal : purchase * (basis?.quantity ?? (row.quantity === '' ? p.shares : Number(row.quantity)))};
       });
       await api('/api/stock-cost-basis', {body: {bases}});
-      try {localStorage.setItem(PROFILE, JSON.stringify(next)); localStorage.setItem(ENTRIES, JSON.stringify(entries)); setStatus('Stock basis saved in SQLite. Profile and thresholds saved in this browser.');}
-      catch {setStatus('Stock basis saved in SQLite. Browser preferences could not be saved.');}
+      try {localStorage.setItem(PROFILE, JSON.stringify(next)); localStorage.setItem(ENTRIES, JSON.stringify(entries)); setStatus('Stock basis saved in the database. Profile and thresholds saved in this browser.');}
+      catch {setStatus('Stock basis saved in the database. Browser preferences could not be saved.');}
       onName(next.name);
     } catch (e) {setStatus(e.message);} finally {setBusy(false);}
   }
@@ -71,7 +71,7 @@ export function Settings({onClose, onName}) {
       <label>Profile name<input maxLength="60" value=${name} onChange=${e => setName(e.target.value)}/></label>
       <p>Enter one purchase lot or a combined average basis using total shares and total fees. Actual CAD cost can override rounding. Opening option sales are recorded separately below.</p>
       <button type="button" disabled=${!legacy.length || busy || !ready} onClick=${async () => {
-        if (!confirm(`Import ${legacy.length} previous browser cost bases into SQLite? Matching saved records will be replaced.`)) return;
+        if (!confirm(`Import ${legacy.length} previous browser cost bases into the database? Matching saved records will be replaced.`)) return;
         setBusy(true); try {await api('/api/stock-cost-basis', {body: {bases: legacy}}); await load();} catch(e) {setStatus(e.message);} finally {setBusy(false);}
       }}>Import previous browser cost bases</button>
       <div className="table-scroll"><table><thead><tr><th>Holding / account currency</th>${columns.map(([field, title]) => html`<th key=${field} scope="col">${title}</th>`)}<th>Restore</th></tr></thead>
@@ -104,7 +104,7 @@ function PremiumForm({converted = false}) {
     e.preventDefault(); if (!converted && !holding) return; setBusy(true); setStatus('Saving…');
     const payload = Object.fromEntries(definitions.map(([key, , type]) => [key, type === 'number' ? Number(fields[key]) : fields[key]]));
     if (!converted) {delete payload.holding; Object.assign(payload, {account: holding.account, symbol: holding.symbol, expiry: holding.call_expiry, strike: Number(holding.call_strike_native_currency), contracts: holding.call_contracts});}
-    try {await api(endpoint, {body: {...payload, reviewed}}); setReviewed(false); await load(); setStatus('Opening sale saved in SQLite. Refresh the optimizer analysis to apply it.');}
+    try {await api(endpoint, {body: {...payload, reviewed}}); setReviewed(false); await load(); setStatus('Opening sale saved in the database. Refresh the optimizer analysis to apply it.');}
     catch (error) {setStatus(error.message);} finally {setBusy(false);}
   }
   return html`<section><details><summary>${converted ? 'Opening option sale · CAD conversion details (optional)' : 'Record original option premium sale (USD)'}</summary>

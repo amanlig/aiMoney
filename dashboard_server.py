@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import psycopg
 import subprocess
 import sys
 import threading
@@ -189,6 +190,7 @@ def create_app(*, refresh_macro=True):
     async def domain_error(request, error):
         return JSONResponse({'error': str(error)}, status_code=400)
 
+    @app.exception_handler(psycopg.Error)
     @app.exception_handler(sqlite3.Error)
     @app.exception_handler(OSError)
     @app.exception_handler(subprocess.SubprocessError)

@@ -4,16 +4,17 @@ from datetime import date, datetime, timezone
 import hashlib
 import json
 from pathlib import Path
-import sqlite3
+import sys
 from model import DIRECTIONS, fit, metrics, positive, split_dates
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
+sys.path.insert(0, str(ROOT))
+from database import connect
 
 
 def load(path):
-    with sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True) as db:
-        db.row_factory = sqlite3.Row
+    with connect(path, readonly=True) as db:
         rows = [dict(r) for r in db.execute('SELECT * FROM samples ORDER BY settlement_date,id')]
     valid, excluded = [], []
     for row in rows:

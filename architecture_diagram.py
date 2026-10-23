@@ -1,151 +1,211 @@
-"""Render investment app architecture, excluding the separate FX model workflow."""
+"""Render the proposed single-EC2 deployment as a self-contained SVG."""
+import base64
 from html import escape
 from pathlib import Path
-import textwrap
 
-ROOT=Path(__file__).resolve().parent
-WIDTH,HEIGHT=1600,2820
+ROOT = Path(__file__).resolve().parent
+WIDTH, HEIGHT = 1800, 1530
+
 
 def render():
-    parts=[f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-labelledby="title description"><title id="title">Investment application architecture</title><desc id="description">High-level context: trader uses the Covered Call Optimizer system, which reads Questrade and Yahoo data and requests OpenAI assessments. Application architecture: React.js dashboard calls FastAPI in dashboard_server.py, which calls exit_optimizer.py and the independent model.py. Settings, persistence, Questrade, Yahoo and OpenAI assessment services stay in the application. React.js and FastAPI are implemented; Docker packages the API and React build.</desc><defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7Z" fill="#99b1cb"/></marker></defs><style>text{{font-family:system-ui,sans-serif;fill:#e8eff8}}.title{{font-size:29px;font-weight:700}}.heading{{font-size:18px;font-weight:650}}.body{{font-size:15px}}.note{{font-size:14px;fill:#b4c7da}}</style><rect width="1600" height="2820" fill="#080c12"/>']
-    def text(x,y,value,css='body'):
+    parts = [f'''<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-labelledby="title description">
+<title id="title">Covered Call Optimizer — proposed AWS deployment</title>
+<desc id="description">Proposed, not yet deployed to AWS. Route 53 maps a subdomain to an Elastic IP on one EC2 instance. The browser connects over HTTPS to a planned Caddy container. An existing application container serves React assets and FastAPI, application services and a pure financial model. A separate existing PostgreSQL container holds records. Both use persistent EBS storage. Questrade, Yahoo Finance and OpenAI are external services. Docker images are build inputs, not additional servers. S3 holds proposed off-instance backups. PostgreSQL and application ports are not publicly exposed.</desc>
+<defs>
+ <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#536b82"/></marker>
+ <marker id="dns" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#8159a4"/></marker>
+</defs>
+<style>
+text{{font-family:Arial,Helvetica,sans-serif;fill:#18324c}}
+.title{{font-size:32px;font-weight:700}} .heading{{font-size:21px;font-weight:700}}
+.body{{font-size:17px}} .small{{font-size:15px;fill:#50677d}} .tiny{{font-size:14px;fill:#50677d}}
+.label{{font-size:15px;font-weight:700}} .light{{fill:white}}
+</style>
+<rect width="1800" height="1530" fill="#f4f7fb"/>
+''']
+
+    def text(x, y, value, css='body'):
         parts.append(f'<text x="{x}" y="{y}" class="{css}">{escape(value)}</text>')
-    def box(x,y,w,h,title,lines,color='#497fae',dashed=False):
-        dash='stroke-dasharray="7 5"' if dashed else ''
-        parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="12" fill="#142131" stroke="{color}" stroke-width="2" {dash}/>')
-        text(x+18,y+30,title,'heading');row=0
-        for line in lines:
-            for wrapped in textwrap.wrap(line,width=int((w-36)/7.7)):
-                text(x+18,y+58+row*22,wrapped);row+=1
-        if 58+max(0,row-1)*22>h-12:raise ValueError('Text exceeds box: '+title)
-    def arrow(points,label=None,x=0,y=0):
-        parts.append(f'<polyline points="{points}" fill="none" stroke="#99b1cb" stroke-width="2" marker-end="url(#arrow)"/>')
-        if label:text(x,y,label,'note')
-    text(35,45,'Covered Call Optimizer · system context','title')
-    text(35,76,'High-level view · actor, system under development and external resources · No order execution','note')
-    box(35,270,300,170,'Actor · Trader',[
-        'Provides purchase / premium records and objectives',
-        'Explores scenarios and decides whether to trade'
-    ],'#d3ab64')
-    box(450,230,460,230,'System · Covered Call Optimizer',[
-        'The system we are developing',
-        'React.js UI, API, model, settings and local storage',
-        'Compares closing / rolling covered calls; shows cash, profit and liquidity',
-        'Provides requested assessments; trader keeps execution control'
-    ],'#49a58a')
-    box(1110,140,450,140,'External · Questrade API',[
-        'Stock / option quotes, displayed sizes, Greeks, listed calls and positions',
-        'Read-only broker access; no order submission'
-    ])
-    box(1110,340,450,140,'External · Yahoo Finance',[
-        'Three months of daily stock closes',
-        'Historical input to scenario simulations'
-    ])
-    box(1110,540,450,140,'External · OpenAI API',[
-        'Receives selected position / scenario snapshot',
-        'Returns an assessment on explicit request'
-    ],'#8b73af')
-    arrow('335,330 450,330','Inputs',350,310)
-    arrow('450,390 335,390','Results',350,420)
-    arrow('1110,210 1000,210 1000,270 910,270','Quotes / chains',925,190)
-    arrow('1110,410 910,410','Stock history',940,390)
-    arrow('910,440 980,440 980,605 1110,605','Snapshot',1005,585)
-    arrow('1110,645 945,645 945,480 800,480 800,460','Assessment',980,666)
-    text(35,550,'Inside our system: React.js browser UI, application API / services, independent pricing model, SQLite and saved captures.','note')
-    text(35,580,'Outside our system: the trader and external market-data / AI services. Brokerage trade execution remains outside this tool.','note')
-    parts.append('<line x1="35" y1="715" x2="1565" y2="715" stroke="#43627e" stroke-width="2"/>')
-    parts.append('<g transform="translate(0 740)">')
-    text(35,45,'Covered-call optimizer · running deployment','title')
-    text(35,76,'October 21, 2026 · Docker Desktop / WSL 2 · React → FastAPI → application services → model','note')
-    box(420,115,760,150,'Browser · React.js · frontend/',[
-        'Home / covered-call-optimizer, chart, slider and Close / Expire controls',
-        'Profile / Settings, opening premiums and Recommendation panel',
-        'Same-origin /api/ requests; credentials remain on the server'])
-    parts.append('<rect x="350" y="340" width="900" height="1160" rx="16" fill="#0c1623" stroke="#49a58a" stroke-width="2" stroke-dasharray="10 6"/>')
-    text(375,373,'Docker Compose · api service · aimoney-api image','heading')
-    text(375,398,'Non-root runtime · one Uvicorn worker · host 127.0.0.1:8765 → container :8765','note')
-    box(420,440,760,170,'FastAPI · dashboard_server.py',[
-        'Serves the React build and typed /api/ routes; OpenAPI at /docs',
-        'Holdings / saved capture / scenario / refresh / settings / assessments',
-        'Origin checks, body limits, JSON errors and shared operation locks',
-        'Lifespan starts / stops Yahoo reference feed; /api/health health check'])
-    arrow('700,265 700,300 330,300 330,475 420,475','HTTP / JSON request',370,290)
-    arrow('1180,485 1270,485 1270,300 900,300 900,265','React assets / JSON response',930,290)
-    box(25,725,300,210,'External · market data',[
-        'Questrade: stock / option quotes, Greeks, chains and positions',
-        'Yahoo: stock history; separate periodic FX reference',
-        'Broker requests only on explicit optimizer refresh'])
-    box(420,720,760,170,'Application adapter · exit_optimizer.py',[
-        'Refresh: acquire market data, read transactions and build inputs',
-        'Scenario: reprice saved capture locally, without market requests',
-        'Evaluate the independent model; persist captures only on refresh'])
-    arrow('700,610 700,720','Refresh / scenario',505,665)
-    arrow('900,720 900,610','Analysis result',920,665)
-    arrow('325,790 420,790','Quotes',335,770)
-    arrow('420,845 325,845','Requests',335,875)
-    box(420,985,760,195,'Independent pricing model · model.py',[
-        'models/financials/covered_call_exit/model.py',
-        'IV calibration, European call approximation and 600 return paths',
-        '30-trading-day baseline; cash flows, profit, top 3 rolls and funding',
-        'Fixed captured Close today reference; hypothetical stock scenarios',
-        'Pure calculations: no HTTP, database, credentials or OpenAI'
-    ],'#49a58a')
-    arrow('700,890 700,985','Validated model inputs',490,940)
-    arrow('900,985 900,890','Calculated outputs',920,940)
-    box(420,1270,350,200,'Settings services',[
-        'stock_basis.py',
-        'option_premiums.py / fx_samples.py',
-        'Validate reviewed entries; save original costs and premiums to SQLite'
-    ])
-    box(820,1270,360,200,'Recommendation services',[
-        'optimizer_recommendations.py',
-        'Rebuild verified chart snapshot',
-        'optimizer_assessments.py',
-        'Call OpenAI; save assessment history'
-    ],'#8b73af')
-    box(1280,1270,295,200,'External · OpenAI API',[
-        'Responses API',
-        'Explicit Generate action only',
-        'Receives selected facts; returns an assessment',
-        'No trade submission'
-    ],'#8b73af')
-    arrow('1000,1270 1000,1180','Rebuild snapshot',1010,1225)
-    arrow('420,525 380,525 380,1370 420,1370')
-    arrow('1180,525 1220,525 1220,1370 1180,1370')
-    arrow('1180,1325 1280,1325','Snapshot',1188,1305)
-    arrow('1280,1420 1180,1420','Assessment',1188,1450)
-    parts.append('<rect x="25" y="1615" width="1550" height="315" rx="16" fill="#0c1623" stroke="#d3ab64" stroke-width="2"/>')
-    text(50,1650,'WSL host storage · bind mounts · persists across container replacement','heading')
-    box(55,1680,465,175,'data/ → /app/data · read / write',[
-        'fx-samples.sqlite3: shared stock basis, opening premiums, FX samples and recommendation_runs',
-        'Private saved account holdings JSON'
-    ],'#d3ab64')
-    box(565,1680,465,175,'reports/ → /app/reports · read / write',[
-        'Per-holding quote / model captures and generated reports',
-        'GET /api/exit-optimizer/capture loads saved chart data; slider never saves'
-    ],'#d3ab64')
-    box(1075,1680,465,175,'.secrets/ → /app/.secrets · read / write',[
-        'OpenAI configuration and Questrade authorization',
-        'Writable because broker refresh tokens rotate; never sent to browser'
-    ],'#d3ab64')
-    text(55,1895,'Optional CIBC FX artifacts mount read-only; its separate training / publishing workflow is outside this view.','note')
-    arrow('590,1470 590,1540 290,1540 290,1680')
-    arrow('1000,1470 1000,1575 380,1575 380,1680')
-    arrow('1180,875 1235,875 1235,1555 800,1555 800,1680')
-    arrow('1540,1780 1585,1780 1585,650 1205,650 1205,570 1180,570','Server credentials',1280,630)
-    text(35,1980,'Image build: Python dependencies + application / model code + local React assets. Private runtime files stay outside the image.','note')
-    text(35,2010,'Docker health verified · host loopback only · rprivate bind propagation · one worker preserves refresh / token locks.','note')
-    text(35,2040,'Sources: ARCHITECTURE.md / compose.yaml / Dockerfile · Regenerate: python architecture_diagram.py','note')
-    parts.append('</g></svg>')
+
+    def rect(x, y, w, h, fill='white', stroke='#cdd8e4', dashed=False, radius=14):
+        dash = ' stroke-dasharray="8 6"' if dashed else ''
+        parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{radius}" fill="{fill}" stroke="{stroke}" stroke-width="2"{dash}/>')
+
+    def icon(name, x, y, size=48):
+        path = ROOT / 'docs/icons' / (name + '.png')
+        if not path.exists():
+            path = path.with_suffix('.svg')
+        mime = 'image/svg+xml' if path.suffix == '.svg' else 'image/png'
+        encoded = base64.b64encode(path.read_bytes()).decode()
+        parts.append(f'<image x="{x}" y="{y}" width="{size}" height="{size}" href="data:{mime};base64,{encoded}"/>')
+
+    def line(points, dashed=False, dns=False):
+        color = '#8159a4' if dns else '#536b82'
+        dash = ' stroke-dasharray="7 5"' if dashed else ''
+        marker = 'dns' if dns else 'arrow'
+        parts.append(f'<polyline points="{points}" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#{marker})"{dash}/>')
+
+    def badge(x, y, value, color='#e9f2fd', ink='#24496d', width=150):
+        rect(x, y, width, 28, color, color, radius=7)
+        parts.append(f'<text x="{x+10}" y="{y+19}" style="font:700 13px Arial;fill:{ink}">{escape(value)}</text>')
+
+    def brand(x, y, label, color, size=48):
+        rect(x, y, size, size, color, color, radius=10)
+        parts.append(f'<text x="{x+size/2}" y="{y+size*.66}" text-anchor="middle" style="font:700 {size*.4}px Arial;fill:white">{escape(label)}</text>')
+
+    text(40, 53, 'Covered Call Optimizer · AWS deployment', 'title')
+    text(40, 84, 'Planned manual deployment · one EC2 instance · three containers · October 23, 2026', 'body')
+    badge(1405, 31, 'AWS NOT DEPLOYED', '#fff0d7', '#865412', 350)
+
+    # DNS is a lookup; the browser's application traffic goes directly to EC2.
+    rect(40, 135, 330, 135)
+    parts.append('<rect x="62" y="157" width="52" height="38" rx="4" fill="#e4f0fc" stroke="#326da8" stroke-width="3"/><path d="M88 195v12m-15 0h30" stroke="#326da8" stroke-width="3"/>')
+    text(130, 175, 'Trader’s browser', 'heading')
+    text(62, 232, 'React runs here after download', 'small')
+    rect(435, 135, 345, 135)
+    icon('route53', 455, 155, 50)
+    text(521, 175, 'Amazon Route 53', 'heading')
+    text(455, 225, 'money.yourdomain.com', 'body')
+    text(455, 249, 'A record → fixed Elastic IP', 'small')
+    rect(845, 135, 330, 135, '#f2f7fd')
+    brand(866, 157, 'IP', '#326da8')
+    text(930, 175, 'Elastic IP', 'heading')
+    text(866, 225, 'Stable public IPv4 address', 'body')
+    text(866, 249, 'Retained across stop / start', 'small')
+    line('370,185 435,185', True, True)
+    text(378, 169, 'DNS', 'tiny')
+    line('780,185 845,185', True, True)
+    text(792, 169, 'maps', 'tiny')
+    text(1240, 174, 'One public endpoint', 'heading')
+    text(1240, 207, 'UI and API share the same HTTPS origin.', 'body')
+    text(1240, 237, 'Login required before public access.', 'small')
+
+    # AWS resources vs. third-party providers.
+    rect(400, 335, 995, 1050, '#fffaf2', '#d9a14a', radius=20)
+    text(425, 369, 'AWS · EC2 COMPUTE + STORAGE', 'label')
+    rect(425, 395, 945, 725, '#ffffff', '#e79b43', radius=18)
+    icon('ec2', 445, 415, 53)
+    text(515, 438, 'Amazon EC2 · one Linux instance', 'heading')
+    text(515, 465, 'Start when needed · Docker Compose restarts containers on boot', 'small')
+    badge(1115, 420, '2 vCPU / 4 GB', '#fff0d7', '#865412', 230)
+    rect(450, 493, 895, 600, '#f1f7fc', '#69a0cb', radius=15)
+    icon('docker', 466, 503, 43)
+    text(520, 530, 'Docker Compose · private container network', 'heading')
+
+    rect(475, 555, 845, 105, '#fffdf8', '#c99843', dashed=True)
+    icon('caddy', 493, 572, 55)
+    text(568, 585, 'Caddy · HTTPS reverse proxy', 'heading')
+    text(568, 614, 'TLS certificate + renewal · HTTP redirects to HTTPS', 'body')
+    text(568, 639, 'Image: caddy:2     Container / service: caddy     Public ports: 80, 443', 'small')
+    badge(1153, 570, 'TO ADD', '#fff0d7', '#865412', 143)
+
+    line('205,270 205,305 1382,305 1382,543 900,543 900,555')
+    rect(542, 290, 330, 30, '#f4f7fb', '#f4f7fb', radius=0)
+    text(555, 311, 'HTTPS :443 → Elastic IP → EC2', 'label')
+    text(921, 351, 'Security group: allow 80 / 443', 'small')
+    line('735,660 735,723')
+    text(752, 690, 'HTTP → api:8765', 'small')
+
+    rect(475, 725, 535, 340, '#ffffff', '#4c91bd')
+    icon('docker', 491, 737, 40)
+    text(547, 758, 'Application container', 'heading')
+    text(494, 789, 'Image: aimoney:<version> · service: api', 'small')
+    icon('react', 493, 806, 36)
+    text(544, 832, 'React assets · home, chart, settings', 'body')
+    icon('fastapi', 493, 852, 36)
+    text(544, 879, 'FastAPI · /api/* and static UI files', 'body')
+    text(494, 920, 'Application services', 'label')
+    text(494, 945, 'Broker access · records · captures · assessments', 'small')
+    rect(494, 967, 495, 75, '#eaf7f2', '#b4d9ca', radius=9)
+    text(510, 994, 'Independent financial model · Python', 'label')
+    text(510, 1019, 'Pricing / simulation · no network or database access', 'small')
+
+    rect(1050, 725, 270, 340, '#ffffff', '#487da8')
+    icon('postgresql', 1139, 749, 80)
+    text(1070, 870, 'PostgreSQL 17', 'heading')
+    text(1070, 900, 'Image: postgres:17.6-', 'small')
+    text(1070, 922, 'bookworm · service: db', 'small')
+    text(1070, 958, 'Basis · premiums · FX', 'body')
+    text(1070, 985, 'Recommendation history', 'small')
+    badge(1070, 1010, 'PRIVATE :5432', '#e9f2fd', '#24496d', 230)
+    line('1010,910 1050,910')
+
+    # Image artifacts are not running services.
+    rect(40, 395, 315, 725, '#ffffff', '#c7d4e1')
+    icon('docker', 60, 414, 48)
+    text(121, 443, 'Docker images', 'heading')
+    text(60, 483, 'Build / pull, then run', 'body')
+    text(60, 512, 'Artifacts, not extra EC2 instances', 'tiny')
+    rect(60, 549, 275, 142, '#f2f7fd')
+    text(77, 579, '1  Application image', 'label')
+    text(77, 610, 'Built from our Dockerfile', 'small')
+    text(77, 637, 'React + Python + model', 'small')
+    text(77, 665, 'aimoney:<version>', 'small')
+    rect(60, 713, 275, 142, '#f2f7fd')
+    text(77, 744, '2  PostgreSQL image', 'label')
+    text(77, 775, 'Official Docker Hub image', 'small')
+    text(77, 802, 'Database engine only', 'small')
+    text(77, 830, 'postgres:17.6-bookworm', 'small')
+    rect(60, 877, 275, 142, '#fffdf8', '#c99843', dashed=True)
+    text(77, 908, '3  Caddy image', 'label')
+    text(77, 939, 'Official Docker Hub image', 'small')
+    text(77, 966, 'HTTPS entry point · planned', 'small')
+    text(77, 994, 'caddy:2', 'small')
+    text(60, 1064, 'Manual build / transfer / pull', 'small')
+    line('355,520 450,520', True)
+
+    rect(1430, 395, 330, 725, '#ffffff', '#c7d4e1')
+    text(1450, 432, 'EXTERNAL SERVICES', 'label')
+    for y, label, mark, color, rows in [
+        (465, 'Questrade API', 'Q', '#337a35', ('Quotes · Greeks · option chains', 'Positions · explicit refresh')),
+        (667, 'Yahoo Finance', 'Y!', '#6001d2', ('Stock-price history', 'USD/CAD reference feed')),
+        (869, 'OpenAI API', 'AI', '#157b68', ('Selected scenario snapshot', 'Assessment · explicit request')),
+    ]:
+        rect(1450, y, 290, 168, '#f8fafc')
+        brand(1466, y+16, mark, color, 43)
+        text(1521, y+44, label, 'heading')
+        text(1466, y+92, rows[0], 'small')
+        text(1466, y+120, rows[1], 'small')
+    # All providers connect to app services, never directly to the pure model.
+    line('970,725 970,694 1410,694 1410,550 1450,550')
+    line('1410,694 1410,752 1450,752')
+    line('1410,752 1410,954 1450,954')
+    text(1090, 681, 'External HTTPS requests / responses', 'tiny')
+    text(1450, 1085, 'No order execution', 'small')
+
+    # Persistent files stay outside replaceable container filesystems.
+    rect(450, 1170, 895, 185, '#ffffff', '#d9a14a')
+    icon('ebs', 470, 1184, 48)
+    text(547, 1215, 'Amazon EBS · persistent encrypted storage', 'heading')
+    text(470, 1257, 'postgres_data: database     data/ + reports/: holdings and captures', 'body')
+    text(470, 1287, '.secrets/: credentials     Caddy volumes: certificates and configuration', 'small')
+    text(470, 1325, 'Retained when EC2 stops · container replacement does not delete records', 'small')
+    line('1168,1065 1168,1170')
+    line('650,1065 650,1170')
+    text(666, 1152, 'Persistent volumes / bind mounts', 'small')
+
+    rect(1430, 1170, 330, 185, '#f6fbf4', '#88ab6b', dashed=True)
+    icon('s3', 1450, 1184, 48)
+    text(1522, 1215, 'Amazon S3', 'heading')
+    text(1450, 1257, 'Off-instance database backups', 'body')
+    text(1450, 1287, 'pg_dump → private S3 bucket', 'small')
+    badge(1450, 1310, 'BACKUP UPLOAD TO ADD', '#e7f1e1', '#466333', 285)
+    line('1345,1260 1430,1260', True)
+
+    text(40, 1432, 'Solid boundaries: existing local components or proposed AWS resource placement. Dashed boxes: components to add.', 'small')
+    text(40, 1460, 'Purple dashed arrows: DNS lookup. Grey arrows: runtime traffic / persistence; dashed grey: deployment or backup transfer.', 'small')
+    text(40, 1490, 'AWS deployment is a proposal. Today: app + PostgreSQL run locally. No Amplify, ECS, RDS, load balancer or NAT gateway required.', 'small')
+    parts.append('</svg>')
     return ''.join(parts)
 
 
 def main():
-    content=render()
-    (ROOT/'docs/physical-architecture.svg').write_text(content, encoding='utf-8')
-    (ROOT/'reports').mkdir(exist_ok=True)
-    (ROOT/'reports/investment-architecture.svg').write_text(content, encoding='utf-8')
-    print('Updated docs/physical-architecture.svg and reports/investment-architecture.svg')
+    content = render()
+    (ROOT / 'docs/physical-architecture.svg').write_text(content, encoding='utf-8')
+    (ROOT / 'reports').mkdir(exist_ok=True)
+    (ROOT / 'reports/investment-architecture.svg').write_text(content, encoding='utf-8')
+    print('Updated architecture SVGs')
 
 
-if __name__=='__main__':main()
+if __name__ == '__main__':
+    main()

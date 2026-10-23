@@ -9,7 +9,7 @@ import subprocess
 import sys
 import threading
 import close_recommendations as recommendations
-import sqlite3
+from database import ERRORS as DATABASE_ERRORS
 import stock_basis
 
 HERE=Path(__file__).resolve().parent
@@ -60,7 +60,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(recommendations.status());return
         if self.path=='/api/recommendations/history':
             try:self.send_json({'runs':recommendations.history()})
-            except (OSError,sqlite3.Error):self.send_json({'error':'Local history unavailable.'},503)
+            except (OSError, *DATABASE_ERRORS):self.send_json({'error':'Local history unavailable.'},503)
             return
         super().do_GET()
 
@@ -75,7 +75,7 @@ class Handler(SimpleHTTPRequestHandler):
         except recommendations.ConfigurationError as error:self.send_json({'error':str(error)},503)
         except recommendations.AssessmentError as error:self.send_json({'error':str(error)},502)
         except (ValueError,TypeError) as error:self.send_json({'error':str(error)},400)
-        except (OSError,KeyError,StopIteration,sqlite3.Error):self.send_json({'error':'Assessment source data or history unavailable. Check saved position inputs.'},503)
+        except (OSError,KeyError,StopIteration,*DATABASE_ERRORS):self.send_json({'error':'Assessment source data or history unavailable. Check saved position inputs.'},503)
         finally:ASSESSMENT_LOCK.release()
 
     def do_POST(self):

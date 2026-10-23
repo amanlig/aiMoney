@@ -6,6 +6,12 @@ minimum acceptable bids, stock-loss indicators and rollover payoff comparisons.
 LIRA defaults to USD; RRSP/TFSA default to CAD. Yahoo provides a USD/CAD macro
 reference with a past-month chart. The separate USD optimizer provides local stock-price scenarios, top-three rollover comparisons, Close/Expire outcomes and estimated rollover funding.
 
+## Database
+
+Docker Compose now uses PostgreSQL in a separate container with persistent storage.
+See [migration, configuration and backups](POSTGRESQL.md). The original SQLite
+file remains a legacy snapshot; host execution needs `DATABASE_URL` to use PostgreSQL.
+
 ## Run
 
 Requires Python 3.12+ and the pinned FastAPI/Uvicorn dependencies in
@@ -86,7 +92,7 @@ Manual entry works if OCR is unavailable. USD converted means the confirmation
 subtotal after commission, not gross security value. CAD totals must reconcile
 with the applied CAD/USD rate. Exact duplicate entries are rejected.
 
-Structured data is stored locally in `data/fx-samples.sqlite3`, excluded from Git.
+Structured data is stored in PostgreSQL for the Compose deployment, outside the application image.
 Images are used in a temporary OCR directory that is removed after extraction;
 they are not stored in the database or sent to an external image service. Yahoo
 receives only a historical date query. Missing Yahoo observations remain missing;
@@ -97,21 +103,21 @@ No prediction model or 1% accuracy claim is included at this stage.
 Install Tesseract with English language data on a new machine. The current local
 setup uses isolated Ubuntu packages under `.tools/ocr` without requiring sudo.
 Restart `dashboard_server.py` after updating its source. Existing browser profile
-and holding settings remain separate from the SQLite dataset.
+and holding settings remain separate from the transaction dataset.
 
 ## Financial models
 
 New model projects live under [`models/financials/`](models/financials/README.md).
 The CIBC FX model workspace is [`cibc_fx/`](models/financials/cibc_fx/README.md).
-Reviewed transaction data stays in `data/fx-samples.sqlite3`; model training must
-read it without modifying the saved samples.
+Reviewed transaction data lives in PostgreSQL for the Compose deployment; model
+training reads it without modifying saved samples. The original SQLite file is retained as a legacy snapshot.
 
 ## Opening option premiums
 
 Expand **Option premiums · record opening sale** to record an opening call sale.
 Enter account, ticker, expiry, strike, contracts, settlement date, USD premium per
 share, total USD fees, applied FX and actual net CAD received. Review before saving.
-The `option_premiums` table in `data/fx-samples.sqlite3` persists confirmations
+The `option_premiums` database table persists confirmations
 separately from FX model training samples. Exact duplicate confirmations are
 rejected. A single exact match on account/ticker/expiry/strike/contract quantity
 supplies the holding's net premium for dashboard calculations. Multiple matching
@@ -128,7 +134,7 @@ See [setup and usage](CLOSING_SIMULATOR.md). From the repository root, run
 
 ## Shared stock cost basis
 
-Stock purchase basis is stored in `stock_cost_basis` in `data/fx-samples.sqlite3`,
+Stock purchase basis is stored in the database table `stock_cost_basis`,
 keyed by account, ticker and account currency. Profile → Settings saves it through
 `/api/stock-cost-basis`. Average cost is calculated from total cost and quantity.
 The closing simulator and assessment service read this same table. Reload the

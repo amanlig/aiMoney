@@ -42,7 +42,7 @@ def opening_reference(account, symbol, held, shares, contracts):
                 option_price_usd=premium['price_usd'] if premium else None,
                 option_total_usd=premium['price_usd']*contracts*100 if premium else None,
                 option_settlement_date=premium['settlement_date'] if premium else None,
-                source='SQLite stock_cost_basis and exact-match option_premiums or option_premium_sales_usd; gross amounts, fees excluded')
+                source='Database stock_cost_basis and exact-match option_premiums or option_premium_sales_usd; gross amounts, fees excluded')
 
 def scenario(request):
     account=request.get('account');symbol=request.get('symbol')
@@ -98,7 +98,7 @@ def run(request):
     if old_id not in quotes: raise ValueError('Held option quote unavailable')
     captured=datetime.now(timezone.utc).isoformat()
     data=dict(initial_purchase_price_usd=initial_purchase,as_of=today.isoformat(),account=account,symbol=symbol,shares=p['shares'],contracts=p['call_contracts'],stock=metrics(stock),held=quotes[old_id],history=history,candidates=[q for oid,q in quotes.items() if oid!=old_id],captured_at=captured,
-              sources=dict(purchase_price='SQLite stock_cost_basis.price_usd for this account and symbol',history='Yahoo Finance daily closes (unadjusted)',options='Questrade API verified listed standard calls',future_prices='Return bootstrap + midpoint-calibrated constant-volatility call approximation'))
+              sources=dict(purchase_price='Database stock_cost_basis.price_usd for this account and symbol',history='Yahoo Finance daily closes (unadjusted)',options='Questrade API verified listed standard calls',future_prices='Return bootstrap + midpoint-calibrated constant-volatility call approximation'))
     data['opening_reference']=opening_reference(account,symbol,data['held'],data['shares'],data['contracts'])
     result=model.evaluate(data,horizon=horizon)
     output=dict(inputs=data,result=result)

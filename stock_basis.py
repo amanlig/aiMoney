@@ -1,20 +1,17 @@
 """Shared persistent stock cost basis for dashboard, simulation and assessments."""
+from database_schema import SCHEMA
 from datetime import date, datetime, timezone
 import json
 import math
 from pathlib import Path
 import re
-import sqlite3
+from database import connect as database_connect
 from fx_samples import DB, connect as sample_connect
 
 
 def connect(path=DB):
     db=sample_connect(path)
-    db.execute('''CREATE TABLE IF NOT EXISTS stock_cost_basis (
-      id INTEGER PRIMARY KEY, account TEXT NOT NULL, symbol TEXT NOT NULL,
-      currency TEXT NOT NULL, purchase_date TEXT, quantity REAL NOT NULL,
-      price_usd REAL, fees_usd REAL, purchase_fx REAL, total_cost REAL NOT NULL,
-      updated_at TEXT NOT NULL, UNIQUE(account,symbol,currency))''')
+    db.execute(SCHEMA['stock_cost_basis'])
     return db
 
 
@@ -31,8 +28,7 @@ def records(path=DB):
 
 
 def get(account,symbol,currency='CAD',path=DB):
-    with sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True) as db:
-        db.row_factory=sqlite3.Row
+    with database_connect(path, readonly=True) as db:
         row=db.execute('SELECT * FROM stock_cost_basis WHERE account=? AND symbol=? AND currency=?',(account,symbol,currency)).fetchone()
     if row is None:raise ValueError(f'No saved stock cost basis for {account} {symbol}. Save it in Profile settings.')
     return record(row)

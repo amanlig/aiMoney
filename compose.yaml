@@ -1,11 +1,16 @@
 services:
   api:
+    image: aimoney
     build: .
     init: true
+    depends_on:
+      db:
+        condition: service_healthy
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     ports:
       - "127.0.0.1:8765:8765"
     environment:
+      DATABASE_URL: postgresql://aimoney:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/aimoney
       APP_ALLOWED_ORIGINS: "http://localhost:8765,http://127.0.0.1:8765"
     volumes:
       - type: bind
@@ -36,3 +41,22 @@ services:
           propagation: rprivate
     restart: unless-stopped
     stop_grace_period: 40s
+
+  db:
+    image: postgres:17.6-bookworm
+    environment:
+      POSTGRES_DB: aimoney
+      POSTGRES_USER: aimoney
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aimoney -d aimoney"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+volumes:
+  postgres_data:

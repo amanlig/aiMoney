@@ -1,3 +1,6 @@
+PostgreSQL deployment: training reads the configured `DATABASE_URL` read-only.
+Explicit SQLite paths remain available for archived datasets. See [database setup](../../../POSTGRESQL.md).
+
 # CIBC FX conversion model
 
 A Python standard-library baseline trained on reviewed transactions in
