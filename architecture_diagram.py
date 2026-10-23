@@ -1,4 +1,4 @@
-"""Render the proposed single-EC2 deployment as a self-contained SVG."""
+"""Render the single-EC2 deployment and planned backups as a self-contained SVG."""
 import base64
 from html import escape
 from pathlib import Path
@@ -9,8 +9,8 @@ WIDTH, HEIGHT = 1800, 1530
 
 def render():
     parts = [f'''<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-labelledby="title description">
-<title id="title">Covered Call Optimizer — proposed AWS deployment</title>
-<desc id="description">Proposed, not yet deployed to AWS. Route 53 maps a subdomain to an Elastic IP on one EC2 instance. The browser connects over HTTPS to a planned Caddy container. An existing application container serves React assets and FastAPI, application services and a pure financial model. A separate existing PostgreSQL container holds records. Both use persistent EBS storage. Questrade, Yahoo Finance and OpenAI are external services. Docker images are build inputs, not additional servers. S3 holds proposed off-instance backups. PostgreSQL and application ports are not publicly exposed.</desc>
+<title id="title">Covered Call Optimizer — AWS deployment and email sign-in</title>
+<desc id="description">Route 53 maps aimoney.kodekomplete.com to an Elastic IP on one EC2 instance. Caddy terminates HTTPS. React and FastAPI run in an application container. PostgreSQL holds portfolio records, manually authorized users, hashed email codes and hashed sessions. Amazon SES delivers single-use sign-in codes using a restricted EC2 instance role. Secure cookies remember trusted devices. Questrade, Yahoo Finance and OpenAI remain application integrations. Encrypted EBS persists private files and database volumes. S3 backup automation is future work. PostgreSQL and application ports are not publicly exposed.</desc>
 <defs>
  <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#536b82"/></marker>
  <marker id="dns" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#8159a4"/></marker>
@@ -54,18 +54,18 @@ text{{font-family:Arial,Helvetica,sans-serif;fill:#18324c}}
         parts.append(f'<text x="{x+size/2}" y="{y+size*.66}" text-anchor="middle" style="font:700 {size*.4}px Arial;fill:white">{escape(label)}</text>')
 
     text(40, 53, 'Covered Call Optimizer · AWS deployment', 'title')
-    text(40, 84, 'Planned manual deployment · one EC2 instance · three containers · October 23, 2026', 'body')
-    badge(1405, 31, 'AWS NOT DEPLOYED', '#fff0d7', '#865412', 350)
+    text(40, 84, 'Oregon us-west-2 · one EC2 instance · three containers · email sign-in · October 23, 2026', 'body')
+    badge(1405, 31, 'AWS + EMAIL SIGN-IN', '#e7f1e1', '#466333', 350)
 
     # DNS is a lookup; the browser's application traffic goes directly to EC2.
     rect(40, 135, 330, 135)
     parts.append('<rect x="62" y="157" width="52" height="38" rx="4" fill="#e4f0fc" stroke="#326da8" stroke-width="3"/><path d="M88 195v12m-15 0h30" stroke="#326da8" stroke-width="3"/>')
     text(130, 175, 'Trader’s browser', 'heading')
-    text(62, 232, 'React runs here after download', 'small')
+    text(62, 232, 'React UI + secure session cookie', 'small')
     rect(435, 135, 345, 135)
     icon('route53', 455, 155, 50)
     text(521, 175, 'Amazon Route 53', 'heading')
-    text(455, 225, 'money.yourdomain.com', 'body')
+    text(455, 225, 'aimoney.kodekomplete.com', 'body')
     text(455, 249, 'A record → fixed Elastic IP', 'small')
     rect(845, 135, 330, 135, '#f2f7fd')
     brand(866, 157, 'IP', '#326da8')
@@ -78,7 +78,7 @@ text{{font-family:Arial,Helvetica,sans-serif;fill:#18324c}}
     text(792, 169, 'maps', 'tiny')
     text(1240, 174, 'One public endpoint', 'heading')
     text(1240, 207, 'UI and API share the same HTTPS origin.', 'body')
-    text(1240, 237, 'Login required before public access.', 'small')
+    text(1240, 237, 'Email code → authorized user → session.', 'small')
 
     # AWS resources vs. third-party providers.
     rect(400, 335, 995, 1050, '#fffaf2', '#d9a14a', radius=20)
@@ -92,12 +92,12 @@ text{{font-family:Arial,Helvetica,sans-serif;fill:#18324c}}
     icon('docker', 466, 503, 43)
     text(520, 530, 'Docker Compose · private container network', 'heading')
 
-    rect(475, 555, 845, 105, '#fffdf8', '#c99843', dashed=True)
+    rect(475, 555, 845, 105, '#fffdf8', '#c99843')
     icon('caddy', 493, 572, 55)
     text(568, 585, 'Caddy · HTTPS reverse proxy', 'heading')
     text(568, 614, 'TLS certificate + renewal · HTTP redirects to HTTPS', 'body')
     text(568, 639, 'Image: caddy:2     Container / service: caddy     Public ports: 80, 443', 'small')
-    badge(1153, 570, 'TO ADD', '#fff0d7', '#865412', 143)
+    badge(1153, 570, 'TLS', '#e7f1e1', '#466333', 143)
 
     line('205,270 205,305 1382,305 1382,543 900,543 900,555')
     rect(542, 290, 330, 30, '#f4f7fb', '#f4f7fb', radius=0)
@@ -113,9 +113,9 @@ text{{font-family:Arial,Helvetica,sans-serif;fill:#18324c}}
     icon('react', 493, 806, 36)
     text(544, 832, 'React assets · home, chart, settings', 'body')
     icon('fastapi', 493, 852, 36)
-    text(544, 879, 'FastAPI · /api/* and static UI files', 'body')
+    text(544, 879, 'FastAPI · session checks · /api/*', 'body')
     text(494, 920, 'Application services', 'label')
-    text(494, 945, 'Broker access · records · captures · assessments', 'small')
+    text(494, 945, 'Email codes · records · broker access · assessments', 'small')
     rect(494, 967, 495, 75, '#eaf7f2', '#b4d9ca', radius=9)
     text(510, 994, 'Independent financial model · Python', 'label')
     text(510, 1019, 'Pricing / simulation · no network or database access', 'small')
@@ -125,8 +125,9 @@ text{{font-family:Arial,Helvetica,sans-serif;fill:#18324c}}
     text(1070, 870, 'PostgreSQL 17', 'heading')
     text(1070, 900, 'Image: postgres:17.6-', 'small')
     text(1070, 922, 'bookworm · service: db', 'small')
-    text(1070, 958, 'Basis · premiums · FX', 'body')
-    text(1070, 985, 'Recommendation history', 'small')
+    text(1070, 953, 'Portfolio · user accounts', 'small')
+    text(1070, 976, 'Code HMACs · sessions', 'small')
+    text(1070, 997, 'Shared portfolio access', 'small')
     badge(1070, 1010, 'PRIVATE :5432', '#e9f2fd', '#24496d', 230)
     line('1010,910 1050,910')
 
@@ -146,10 +147,10 @@ text{{font-family:Arial,Helvetica,sans-serif;fill:#18324c}}
     text(77, 775, 'Official Docker Hub image', 'small')
     text(77, 802, 'Database engine only', 'small')
     text(77, 830, 'postgres:17.6-bookworm', 'small')
-    rect(60, 877, 275, 142, '#fffdf8', '#c99843', dashed=True)
+    rect(60, 877, 275, 142, '#fffdf8', '#c99843')
     text(77, 908, '3  Caddy image', 'label')
     text(77, 939, 'Official Docker Hub image', 'small')
-    text(77, 966, 'HTTPS entry point · planned', 'small')
+    text(77, 966, 'HTTPS entry point', 'small')
     text(77, 994, 'caddy:2', 'small')
     text(60, 1064, 'Manual build / transfer / pull', 'small')
     line('355,520 450,520', True)
@@ -158,18 +159,20 @@ text{{font-family:Arial,Helvetica,sans-serif;fill:#18324c}}
     text(1450, 432, 'EXTERNAL SERVICES', 'label')
     for y, label, mark, color, rows in [
         (465, 'Questrade API', 'Q', '#337a35', ('Quotes · Greeks · option chains', 'Positions · explicit refresh')),
-        (667, 'Yahoo Finance', 'Y!', '#6001d2', ('Stock-price history', 'USD/CAD reference feed')),
-        (869, 'OpenAI API', 'AI', '#157b68', ('Selected scenario snapshot', 'Assessment · explicit request')),
+        (620, 'Yahoo Finance', 'Y!', '#6001d2', ('Stock-price history', 'USD/CAD reference feed')),
+        (775, 'OpenAI API', 'AI', '#157b68', ('Selected scenario snapshot', 'Assessment · explicit request')),
+        (930, 'Amazon SES', '@', '#b65b22', ('Single-use sign-in codes', 'Restricted EC2 instance role')),
     ]:
-        rect(1450, y, 290, 168, '#f8fafc')
+        rect(1450, y, 290, 140, '#f8fafc')
         brand(1466, y+16, mark, color, 43)
         text(1521, y+44, label, 'heading')
-        text(1466, y+92, rows[0], 'small')
-        text(1466, y+120, rows[1], 'small')
+        text(1466, y+88, rows[0], 'small')
+        text(1466, y+113, rows[1], 'small')
     # All providers connect to app services, never directly to the pure model.
     line('970,725 970,694 1410,694 1410,550 1450,550')
-    line('1410,694 1410,752 1450,752')
-    line('1410,752 1410,954 1450,954')
+    line('1410,694 1450,694')
+    line('1410,694 1410,845 1450,845')
+    line('1410,845 1410,1000 1450,1000')
     text(1090, 681, 'External HTTPS requests / responses', 'tiny')
     text(1450, 1085, 'No order execution', 'small')
 
@@ -192,9 +195,9 @@ text{{font-family:Arial,Helvetica,sans-serif;fill:#18324c}}
     badge(1450, 1310, 'BACKUP UPLOAD TO ADD', '#e7f1e1', '#466333', 285)
     line('1345,1260 1430,1260', True)
 
-    text(40, 1432, 'Solid boundaries: existing local components or proposed AWS resource placement. Dashed boxes: components to add.', 'small')
+    text(40, 1432, 'Solid boundaries: deployed components. Dashed S3 box: future backup automation. No public registration or per-user portfolios.', 'small')
     text(40, 1460, 'Purple dashed arrows: DNS lookup. Grey arrows: runtime traffic / persistence; dashed grey: deployment or backup transfer.', 'small')
-    text(40, 1490, 'AWS deployment is a proposal. Today: app + PostgreSQL run locally. No Amplify, ECS, RDS, load balancer or NAT gateway required.', 'small')
+    text(40, 1490, 'Future: automated backups + restore drills, then audit and roles; per-user data isolation requires a separate schema/API migration.', 'small')
     parts.append('</svg>')
     return ''.join(parts)
 

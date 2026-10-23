@@ -8,7 +8,9 @@ reference with a past-month chart. The separate USD optimizer provides local sto
 
 ## AWS deployment
 
-Manual single-EC2 deployment in us-west-2: [setup guide](deploy/README.md).
+Single-EC2 deployment in us-west-2: [setup and manual user administration](deploy/README.md).
+Email sign-in verifies active PostgreSQL users through single-use codes; there is no public registration.
+See the [authentication architecture](docs/authentication.md).
 The separate `compose.aws.yaml` adds Caddy HTTPS and login; `compose.yaml`
 continues to run the local application.
 

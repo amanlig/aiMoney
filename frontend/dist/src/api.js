@@ -8,7 +8,12 @@ export async function api(path, {body, signal, allowMissing = false, ...options}
   });
   if (!response.ok && response.status === 404 && allowMissing) return null;
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+  if (response.status === 401 && !path.startsWith('/api/auth/')) location.assign('/signin');
+  if (!response.ok) {
+    const error = new Error(data.error || `Request failed (${response.status}).`);
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 export const money = value => Number.isFinite(value)

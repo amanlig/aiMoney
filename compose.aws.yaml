@@ -12,6 +12,10 @@ services:
     environment:
       DATABASE_URL: postgresql://aimoney:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.aws}@db:5432/aimoney
       APP_ALLOWED_ORIGINS: https://${APP_DOMAIN:?Set APP_DOMAIN to the full hostname}
+      APP_AUTH_ENABLED: "1"
+      AUTH_TRUST_PROXY: "1"
+      AUTH_EMAIL_FROM: ${AUTH_EMAIL_FROM:?Set AUTH_EMAIL_FROM to a verified SES sender}
+      AWS_REGION: us-west-2
     volumes:
       - ./data:/app/data
       - ./reports:/app/reports
@@ -49,8 +53,6 @@ services:
         condition: service_healthy
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN to the full hostname}
-      AUTH_USER: ${AUTH_USER:?Set AUTH_USER in .env.aws}
-      AUTH_HASH: ${AUTH_HASH:?Set a bcrypt AUTH_HASH in .env.aws}
     ports:
       - "80:80"
       - "443:443"

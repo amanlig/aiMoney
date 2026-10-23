@@ -1,10 +1,7 @@
 {$APP_DOMAIN} {
-    basic_auth {
-        {$AUTH_USER} {$AUTH_HASH}
-    }
-
     reverse_proxy api:8765 {
-        # The application uses server-side provider credentials, not this login.
+        # Overwrite rather than trust an incoming client-IP header.
+        header_up X-AiMoney-Client-IP {remote_host}
         header_up -Authorization
     }
 }

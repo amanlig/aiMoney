@@ -115,6 +115,7 @@ class ReactDashboardTests(unittest.TestCase):
             return
         holding = dict(account='RRSP', symbol='TEST', call_strike_native_currency=25, call_expiry='2026-11-20', call_contracts=1)
         values = {
+            'auth/session': {'enabled': False},
             'exit-optimizer/holdings': {'holdings': [holding]},
             'profile/holdings': {'accounts': [dict(account='RRSP', currency='USD', positions=[dict(symbol='TEST', shares=100, contracts=1, cost=2000, strike=25, expiry='2026-11-20', entryFx=1)])]},
             'stock-cost-basis': {'bases': []}, 'option-premiums': {'premiums': []},

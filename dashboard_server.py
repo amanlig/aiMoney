@@ -13,7 +13,7 @@ import threading
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,6 +28,7 @@ import optimizer_recommendations
 import optimizer_assessments
 from macro_data import usd_cad
 from roll_candidates import INPUTS, SYMBOLS, output_path
+from authentication import Authentication, COOKIE, RateLimited
 
 ROOT = Path(__file__).resolve().parent
 ROLL_REFRESH_LOCK = threading.Lock()
@@ -76,6 +77,18 @@ class PositionRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     account: Literal['LIRA', 'RRSP', 'TFSA']
     symbol: str = Field(min_length=1, max_length=16, pattern=r'^[A-Z0-9.\-]+$')
+
+
+class SignInRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    email: str = Field(min_length=3, max_length=254)
+
+
+class VerifySignInRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    challenge_id: str = Field(min_length=20, max_length=100, pattern=r'^[A-Za-z0-9_-]+$')
+    code: str = Field(pattern=r'^[0-9]{8}$')
+    remember: bool = False
 
 
 class RunRequest(PositionRequest):
@@ -144,9 +157,18 @@ async def bounded_request(request: Request):
     return b''.join(chunks)
 
 
-def create_app(*, refresh_macro=True):
+def create_app(*, refresh_macro=True, auth_enabled=None, auth_service=None):
+    authentication_enabled = (os.environ.get('APP_AUTH_ENABLED', '0') == '1'
+                              if auth_enabled is None else auth_enabled)
+
     @asynccontextmanager
     async def lifespan(app):
+        if authentication_enabled:
+            app.state.auth = auth_service or Authentication()
+            # Missing migrations/configuration stop startup; never bypass authentication.
+            with app.state.auth.connection() as db:
+                for table in ('app_users', 'auth_challenges', 'auth_sessions', 'auth_rate_limits'):
+                    db.execute(f'SELECT 1 FROM {table} LIMIT 1')
         (ROOT/'data').mkdir(exist_ok=True)
         (ROOT/'reports').mkdir(exist_ok=True)
         feed = MacroFeed(ROOT/'reports/macro-data.json')
@@ -163,15 +185,87 @@ def create_app(*, refresh_macro=True):
 
     app = FastAPI(title='aiMoney API', version='1.0.0', lifespan=lifespan)
 
+    def finish(response):
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
+
     @app.middleware('http')
     async def request_boundary(request, call_next):
+        public = request.url.path in {
+            '/signin', '/api/auth/session', '/api/auth/request-code', '/api/auth/verify', '/api/health',
+            '/profile_settings.js',
+        } or request.url.path.startswith('/frontend/dist/')
+        if authentication_enabled and not public:
+            try:
+                user = await run_in_threadpool(app.state.auth.session, request.cookies.get(COOKIE))
+            except (psycopg.Error, sqlite3.Error, OSError):
+                return finish(JSONResponse({'error': 'Sign-in is temporarily unavailable.'}, status_code=503))
+            if not user:
+                response = (JSONResponse({'error': 'Sign in to continue.'}, status_code=401)
+                            if request.url.path.startswith('/api/') or request.url.path == '/openapi.json'
+                            else RedirectResponse('/signin', status_code=303))
+                return finish(response)
+            request.state.user = user
         if request.url.path.startswith('/api/') and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
             try:
                 request._body = await bounded_request(request)
             except HTTPException as error:
-                return JSONResponse({'error': error.detail}, status_code=error.status_code)
+                return finish(JSONResponse({'error': error.detail}, status_code=error.status_code))
         response = await call_next(request)
-        response.headers['Cache-Control'] = 'no-store'
+        return finish(response)
+
+    def client_ip(request):
+        # Caddy overwrites this header; the cloud API publishes no host port.
+        if os.environ.get('AUTH_TRUST_PROXY') == '1':
+            return request.headers.get('x-aimoney-client-ip', 'unknown')[:64]
+        return request.client.host if request.client else 'unknown'
+
+    @app.get('/api/auth/session')
+    def auth_session(request: Request):
+        if not authentication_enabled:
+            return {'enabled': False}
+        user = app.state.auth.session(request.cookies.get(COOKIE))
+        if not user:
+            raise HTTPException(401, 'Sign in to continue.')
+        return {'enabled': True, 'email': user['email']}
+
+    @app.post('/api/auth/request-code')
+    def request_code(body: SignInRequest, request: Request, tasks: BackgroundTasks):
+        if not authentication_enabled:
+            raise HTTPException(404, 'Email sign-in is not enabled.')
+        try:
+            challenge, delivery = app.state.auth.request_code(body.email, client_ip(request))
+        except RateLimited:
+            raise HTTPException(429, 'Please wait before requesting another code.') from None
+        if delivery:
+            tasks.add_task(app.state.auth.deliver, *delivery)
+        return {'challenge_id': challenge,
+                'message': 'If your email is authorized, a code will arrive shortly. It expires in 10 minutes.'}
+
+    @app.post('/api/auth/verify')
+    def verify_code(body: VerifySignInRequest, request: Request):
+        if not authentication_enabled:
+            raise HTTPException(404, 'Email sign-in is not enabled.')
+        try:
+            result = app.state.auth.verify(body.challenge_id, body.code, body.remember, client_ip(request))
+        except RateLimited:
+            raise HTTPException(429, 'Too many attempts. Try again later.') from None
+        if not result:
+            raise HTTPException(400, 'Invalid or expired code. Request a new code if needed.')
+        token, email, ttl = result
+        response = JSONResponse({'email': email})
+        response.set_cookie(COOKIE, token, max_age=ttl if body.remember else None,
+                            secure=True, httponly=True, samesite='lax', path='/')
+        return response
+
+    @app.post('/api/auth/logout')
+    def logout(request: Request):
+        if authentication_enabled:
+            app.state.auth.logout(request.cookies.get(COOKIE))
+        response = JSONResponse({'ok': True})
+        response.delete_cookie(COOKIE, secure=True, httponly=True, samesite='lax', path='/')
         return response
 
     @app.exception_handler(StarletteHTTPException)
@@ -317,6 +411,7 @@ def create_app(*, refresh_macro=True):
             except (OSError, subprocess.SubprocessError):
                 raise HTTPException(502, 'Questrade candidate refresh failed; previous capture retained') from None
 
+    @app.get('/signin', include_in_schema=False)
     @app.get('/', include_in_schema=False)
     @app.get('/index.html', include_in_schema=False)
     @app.get('/covered-call-optimizer', include_in_schema=False)

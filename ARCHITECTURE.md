@@ -1,6 +1,6 @@
 # Covered-call optimizer architecture · React.js UI and FastAPI boundary
 
-Updated October 23, 2026. This view covers the local portfolio application and
+Updated October 23, 2026. This view covers the AWS-hosted portfolio application and
 USD covered-call optimizer. The separate CIBC FX model and its training,
 evaluation and publishing workflows are excluded from this architecture view.
 **Migration status:** the React.js dashboard now calls FastAPI in
@@ -12,20 +12,22 @@ Main flow: **React.js dashboard → FastAPI (`dashboard_server.py`) → applicat
 the adapter and API to the dashboard. Market access, persistence and OpenAI stay
 in the application; the model receives data and returns calculations.
 
-![Proposed AWS deployment](docs/physical-architecture.svg)
+![AWS deployment and email sign-in](docs/physical-architecture.svg)
 
-## Proposed AWS deployment · manual setup
+## AWS deployment · current direction
 
-The diagram above depicts the agreed deployment target. **AWS is not deployed
-and the Caddy deployment configuration is prepared but not running in AWS; S3 backup uploads are not configured yet.** See [manual deployment files](deploy/README.md). The current local runtime
-has two containers: application and PostgreSQL. The existing local architecture
-and runtime details continue below.
+The app is deployed at **https://aimoney.kodekomplete.com** on one EC2 instance
+in **us-west-2**, with Caddy, the application and PostgreSQL in separate containers.
+Email sign-in replaces the browser Basic Authentication prompt. **S3 backup
+automation remains planned.** See [deployment and user administration](deploy/README.md).
+The local Compose setup remains a development option; the local API is stopped
+after cutover to avoid two copies rotating the Questrade token.
 
 - **Route 53:** an A record for a chosen subdomain points to an EC2 Elastic IP.
   DNS resolves the address; subsequent HTTPS traffic goes directly to EC2.
 - **Elastic IP:** fixed public IPv4 retained across EC2 stop/start.
 - **EC2:** one Linux instance running Docker Compose; initial sizing is 2 vCPU / 4 GB.
-- **Caddy container, planned:** `caddy:2` image, public ports 80 / 443, TLS termination
+- **Caddy container:** `caddy:2` image, public ports 80 / 443, TLS termination
   and renewal, forwarding to `api:8765`. Certificate volumes persist on EBS.
 - **Application container:** versioned `aimoney` image built from the Dockerfile;
   serves React assets and FastAPI, application services and the independent model.
@@ -35,6 +37,10 @@ and runtime details continue below.
 - **EBS:** encrypted persistent database volume, holdings/captures, server credentials
   and Caddy state. Stop EC2 between sessions; keep the disk and Elastic IP.
 - **S3, planned:** private off-instance PostgreSQL backups; restore checks remain required.
+- **Amazon SES:** delivers short-lived sign-in codes from the verified app subdomain.
+  An EC2 instance role permits sending only from the configured sender, with no
+  persistent AWS access keys in the application. IMDSv2 is required; the metadata
+  hop limit permits the application container to obtain its role credentials.
 - **External services:** Questrade for broker data, Yahoo for stock history / FX
   references, and OpenAI for explicitly requested assessments. No order execution.
 
@@ -43,13 +49,66 @@ AWS service icons plus Docker, PostgreSQL, React, FastAPI and Caddy icons; exter
 providers have labeled text badges. Dashed component boxes identify additions.
 Image artifacts are shown separately from running containers.
 
-Before public access, configure login / authorization, HTTPS, FastAPI origins and
-trusted proxy behavior. Restrict EC2 ingress to the chosen web / management paths;
+Public access uses email verification, HTTPS and explicit FastAPI origins.
+Caddy overwrites the client-IP header used for rate limits; only the private
+container network can reach the API. Restrict EC2 ingress to web / management paths;
 application port 8765 and database port 5432 remain private. No Amplify, ECS, RDS,
 load balancer or NAT gateway is needed for this deployment.
 
 Regenerate with `python3 architecture_diagram.py`. The SVG embeds its icons and
 can be shared offline; [icon sources and licenses](docs/icons/README.md) are retained.
+
+## Authentication and manually authorized users
+
+There is no public registration. An operator inserts an active, normalized email
+in PostgreSQL `app_users`. The initial owner is provisioned explicitly. User management stays
+in the server CLI or SQL; the browser cannot create or enable accounts.
+
+1. React posts an email to `/api/auth/request-code` from the approved origin.
+2. FastAPI looks up an active user. Responses do not reveal whether that user exists.
+   Unknown/disabled users never receive a message. Request limits apply per email,
+   client IP and globally; per-user codes are replaced on a new accepted request.
+3. An 8-digit code is delivered through SES. Only its HMAC is stored in
+   `auth_challenges`, with a ten-minute expiry and five-attempt limit. Codes,
+   tokens and provider payloads are never written to request URLs or app logs.
+4. Verification consumes the code atomically, creates `auth_sessions` with a
+   hashed random token, and sets a Secure, HttpOnly, host-only SameSite cookie.
+   Sessions expire after 12 hours, or 30 days with the explicit personal-device option.
+5. API and page access check the session and the user's active status on every
+   request. Disabling a user blocks existing sessions immediately. Sign-out
+   deletes the server session and clears the cookie. Origin validation protects
+   sign-in, sign-out and all application mutations.
+
+`auth_rate_limits` stores HMAC-derived bucket keys and counters. PostgreSQL
+transaction locks serialize code consumption and rate counters. The HMAC secret
+lives in owner-only `.secrets/auth.json` outside the image and Git. Missing auth
+configuration or a missing migration fails startup; database errors do not grant access.
+The sign-in page, required static assets and minimal health endpoint are public;
+holdings, analyses, settings, API docs and application actions require a session.
+Authentication is explicitly enabled by the AWS Compose file. Local development
+keeps its existing loopback-only setup unless authentication is explicitly enabled.
+
+**Authorization scope:** all approved users share the same portfolio and controls.
+Email authorization does not provide roles, independent broker connections or
+per-user data isolation. That boundary must remain visible in future design work.
+
+## Future direction
+
+1. Add scheduled private off-instance PostgreSQL backups, retention and restore drills.
+   Authentication tables join the backup set; server secrets need separate protected
+   recovery. Retain the previous image and explicit database migration history.
+2. Add security audit events and an operator workflow for revocation, then define
+   read-only versus editor roles if more people need access. Never expose public
+   user registration implicitly through a UI refactor.
+3. If separate user portfolios are needed, introduce portfolio ownership/membership,
+   scope every data query and write, separate broker secrets, and test cross-user
+   access denial before admitting users with different data access requirements.
+4. Consider a managed identity provider or passkeys when stronger authentication
+   or account recovery is required. Keep application authorization in PostgreSQL
+   and re-evaluate remembered-device lifetimes for that threat model.
+5. Keep intraday liquidity research in the independent financial-model boundary
+   described in TODO.md; authentication must not change pricing behavior or trigger
+   automatic brokerage actions.
 
 ## High-level system context
 
@@ -65,9 +124,10 @@ The dashboard, API, application services, independent pricing model, PostgreSQL 
 saved captures are inside the system boundary. The lower panel expands those
 internal components and the implemented FastAPI boundary.
 
-## Running Docker deployment
+## Local Docker development reference
 
-Docker Desktop runs the Compose `api` service in WSL 2. The browser executes React;
+The local API remains stopped after AWS cutover. For development, Docker Desktop
+can run the Compose `api` service in WSL 2. The browser executes React;
 the container serves its build and handles JSON requests with FastAPI / Uvicorn.
 Host `127.0.0.1:8765` maps to container port `8765`. The app is available at
 `/covered-call-optimizer`, OpenAPI at `/docs`, and health status at `/api/health`.
@@ -188,9 +248,9 @@ OpenAI calls remain in the Python application and independent model.
 The frontend source and build configuration live in `frontend/`. Run
 `python frontend/build.py` to copy source modules and pinned local React / React
 DOM / HTM dependencies into `frontend/dist/` and generate both entry pages.
-No Node toolchain or CDN is required. The current server serves built assets
-on the same loopback origin as `/api/*`; FastAPI will take over that responsibility.
-`/`, `/index.html`, `/covered-call-optimizer.html` and the existing
+No Node toolchain or CDN is required. FastAPI serves built assets
+on the same origin as `/api/*`; Caddy supplies HTTPS in AWS.
+`/`, `/index.html`, `/covered-call-optimizer` and the existing
 `/equity-chart.html` redirect remain compatible entry URLs. API routes and
 archived pages stay distinct from frontend routing.
 
@@ -207,6 +267,9 @@ trigger a broker refresh or OpenAI assessment; those require explicit user actio
 cash-flow SVG and mode controls, `Settings.js` owns the profile and both premium
 forms, and `Recommendations.js` owns assessments and history. `api.js` centralizes
 JSON requests. The archived equity dashboard stays outside this UI migration.
+`SignIn.js` gates authenticated application rendering, supports email/code entry
+and remembered sessions, and provides sign-out. Session tokens stay in HttpOnly
+cookies rather than React state or local storage.
 
 ### Optimizer home page and Profile / Settings
 
@@ -328,6 +391,10 @@ The same separation applies to settings and PostgreSQL writes.
 
 | Endpoint on port 8765 | Responsibility |
 | --- | --- |
+| `GET /api/auth/session` | Current email/session status; no portfolio data |
+| `POST /api/auth/request-code` | Rate-limited code request for manually authorized users; generic response |
+| `POST /api/auth/verify` | Consume a valid code and create a secure session cookie |
+| `POST /api/auth/logout` | Revoke the current session and clear its cookie |
 | `GET /api/profile/holdings` | Shared saved-position data for the optimizer profile dialog |
 | `GET /api/exit-optimizer/holdings` | Saved covered-call holdings available for selection |
 | `GET /api/exit-optimizer/capture` | Saved analysis for the selected account/symbol; no refresh |
@@ -352,6 +419,9 @@ saved market capture. A page reload alone does not refresh broker quotes.
 | Store | Purpose |
 | --- | --- |
 | PostgreSQL `aimoney` database / `postgres_data` volume | Shared purchase, premium, FX sample and recommendation tables; legacy SQLite source retained for rollback |
+| `app_users` | Manually provisioned normalized email accounts and active/disabled status |
+| `auth_challenges`, `auth_sessions` | Expiring code HMACs and hashed, revocable browser sessions, linked to users by foreign keys |
+| `auth_rate_limits` | Expiring HMAC-keyed counters for sending and verification |
 | `stock_cost_basis` | Account/symbol/currency, quantity, recorded USD purchase price, cost and optional transaction details |
 | `option_premiums` | Existing confirmed opening sales with contract identity and conversion details |
 | `option_premium_sales_usd` | USD-only reviewed opening sales; created lazily on first save |

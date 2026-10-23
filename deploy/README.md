@@ -1,39 +1,92 @@
-# Manual AWS deployment — us-west-2
+# AWS deployment and authorized users — us-west-2
 
-Target: one EC2 instance, Elastic IP, existing Route 53 hosted zone, Caddy HTTPS,
-`aimoney` application image and PostgreSQL. The selected subdomain is `aimoney`;
-the full domain is still needed. No AWS resources have been created by these files.
+Current host: `https://aimoney.kodekomplete.com`. One EC2 instance runs Caddy,
+FastAPI/React and PostgreSQL. PostgreSQL and the app publish no host ports.
+Only Caddy publishes 80/443; SSH is restricted to the operator's IP. EBS is encrypted.
+See [architecture](../ARCHITECTURE.md) and [authentication flow](../docs/authentication.md).
 
-## 1. Create EC2 manually
+## Email sign-in
 
-In the EC2 console select **US West (Oregon), us-west-2** and launch:
+The sign-in page replaces HTTP Basic Authentication. Only active emails manually
+inserted in PostgreSQL `app_users` can sign in. There is no registration endpoint
+or browser user-management page. All authorized users share the same portfolio
+and controls; independent portfolios and roles are future work.
 
-| Setting | Value |
-| --- | --- |
-| Name | aimoney |
-| AMI | Official Ubuntu Server 24.04 LTS, 64-bit x86 |
-| Instance type | t3.medium (2 vCPU, 4 GiB) |
-| Key pair | Create/select your SSH key; keep the private key locally |
-| Network | Public subnet with an internet-gateway route |
-| Auto-assign public IP | Enabled initially; associate Elastic IP afterward |
-| Storage | 30 GiB gp3, encrypted; retain data volume/root disk on termination if desired |
-| Metadata | Require IMDSv2 |
-| Security group | TCP 22 from your IP only; TCP 80 and 443 from the internet |
+An authorized email receives an 8-digit, single-use code through Amazon SES.
+Codes expire after ten minutes and five attempts. Sessions last 12 hours, or
+30 days when the user selects “Remember this device.” Disable a user to block
+existing sessions immediately; sign-out revokes the current server session.
+Requests are limited per email/IP and globally. Unknown and inactive emails
+receive the same HTTP response but no message.
 
-Do not open 8765 or 5432. Allocate and associate an Elastic IP. In your existing
-Route 53 public hosted zone create an **A record**, name `aimoney`, value the Elastic
-IP, alias off, TTL 300. Preserve other domain records. Do not run the cloud stack
-on the developer machine; it uses ports 80/443 and your real hostname.
+On EC2, from `/home/ubuntu/aiMoney`, apply the additive migration and create a user:
 
-## 2. Prepare the instance
+```sh
+docker compose --env-file .env.aws -f compose.aws.yaml run --rm --no-deps api \
+  python auth_admin.py --migrate --add-user person@example.com
+```
 
-Install Docker Engine and the Compose plugin using the official Ubuntu instructions:
-https://docs.docker.com/engine/install/ubuntu/ . Enable Docker at boot. The SSH user
-needs access to Docker; log out and back in after changing group membership.
+After the app is running:
 
-Clone the repository on EC2 (use an SSH agent or authorized Git access, never put
-a Git token in a command URL). Use the current committed revision. Work from the
-repository root. Prepare persistent paths before starting containers:
+```sh
+docker compose --env-file .env.aws -f compose.aws.yaml exec -T api \
+  python auth_admin.py --add-user person@example.com
+docker compose --env-file .env.aws -f compose.aws.yaml exec -T api \
+  python auth_admin.py --list-users
+docker compose --env-file .env.aws -f compose.aws.yaml exec -T api \
+  python auth_admin.py --disable-user person@example.com
+docker compose --env-file .env.aws -f compose.aws.yaml exec -T api \
+  python auth_admin.py --enable-user person@example.com
+docker compose --env-file .env.aws -f compose.aws.yaml exec -T api \
+  python auth_admin.py --revoke-sessions person@example.com
+```
+
+The operator can also use SQL against the private database. Store lowercase,
+trimmed addresses and use `active=1` for enabled users:
+
+```sql
+INSERT INTO app_users (email, active, created_at)
+VALUES ('person@example.com', 1, extract(epoch FROM now())::bigint);
+UPDATE app_users SET active=0 WHERE email='person@example.com';
+```
+
+Use `--disable-user` when possible: it also deletes that user's sessions and
+outstanding codes, so re-enabling cannot reactivate an old session.
+No automatic owner account is created at application startup.
+
+## Email and authentication configuration
+
+- Verify the app subdomain in SES and publish its DKIM CNAME records in Route 53.
+  Set `AUTH_EMAIL_FROM` to a sender under that identity. Production SES access
+  is required for unverified recipients; the current us-west-2 account has it.
+- Attach an EC2 instance role restricted to `ses:SendEmail` on that SES identity,
+  with `ses:FromAddress` restricted to the configured address. The AWS SDK uses
+  temporary role credentials; do not add AWS access keys to the app.
+- Require IMDSv2 and set the response hop limit to 2 for container access.
+- Store a cryptographically random 64-character (or longer) HMAC secret in
+  `.secrets/auth.json` as `{"secret":"..."}`. Generate it on the server; never
+  print it into logs. Directory permissions: `700`; secret file: `600`.
+- `.env.aws` is owner-only (`600`) and contains the full hostname, runtime UID/GID,
+  versioned app image, database password, and verified sender. `APP_AUTH_ENABLED=1`
+  is set explicitly in the cloud Compose file. Caddy has no Basic Auth password.
+- Only Caddy can reach the API externally. It overwrites `X-AiMoney-Client-IP`;
+  the app trusts that header only when cloud proxy mode is enabled. Preserve
+  this boundary when adding proxies or publishing additional ports.
+
+Do not print `.env.aws`, auth secrets, one-time codes or session cookies. The
+application stores code HMACs and hashed session tokens, never plaintext codes
+or cookie tokens. The `__Host-` cookie is Secure, HttpOnly and SameSite=Lax.
+
+## Fresh instance setup
+
+Use an official Ubuntu Server LTS x86 image, `t3.medium`, and an encrypted 30 GiB
+gp3 disk in a public subnet in us-west-2. Require IMDSv2. Allow 22 only from the
+operator IP and 80/443 publicly. Never expose 8765 or 5432. Allocate an Elastic IP
+and add the chosen A record without modifying unrelated records.
+
+Install Docker Engine and Compose from the official Ubuntu repository:
+https://docs.docker.com/engine/install/ubuntu/ . Enable Docker at boot. Clone the
+repository and check out a reviewed commit. From the repository root:
 
 ```sh
 mkdir -p data reports .secrets models/financials/cibc_fx/artifacts
@@ -42,76 +95,60 @@ cp deploy/aws.env.example .env.aws
 chmod 600 .env.aws
 ```
 
-Edit `.env.aws` locally on EC2. Set the full hostname and a fresh PostgreSQL password;
-set UID/GID to the SSH user's `id -u` / `id -g`. Generate a web-login hash interactively:
+Configure the verified SES sender, role and auth secret above. Set UID/GID to
+match the owner of the runtime folders. Generate a new URL-safe hexadecimal
+PostgreSQL password. Do not log resolved Compose configuration.
 
-```sh
-docker run --rm -it caddy:2 caddy hash-password
-```
+## Data cutover and startup
 
-Save the hash as a single-quoted `AUTH_HASH` in `.env.aws`. The cleartext login
-password is not stored in the repository. All application routes, records and API
-documentation are behind Caddy's HTTPS Basic Authentication. This is a single-user
-deployment, not multi-user account isolation. Do not log `.env.aws` or render the
-resolved Compose environment into terminal/chat output.
+Take a fresh logical PostgreSQL `pg_dump -Fc` backup. Transfer it, saved data and
+captures, required Questrade/OpenAI configuration and optional model artifacts
+through encrypted SSH to the intended server. These private files stay outside
+Git and Docker image layers. Keep local writers stopped for the final snapshot.
+Keep the local app stopped after cutover: two credential copies must not rotate
+the same Questrade refresh token independently.
 
-## 3. Transfer the current data, then restore
-
-Take a fresh `pg_dump -Fc` from the local PostgreSQL container. Transfer that dump,
-`data/` holdings JSON, `reports/` saved captures, required `.secrets/` configuration
-and optional FX model artifacts over SSH to the matching EC2 directories. These
-are private runtime files excluded from Git. A Git clone alone is insufficient.
-
-Keep all local portfolio writers stopped during the final snapshot and transfer.
-Keep the local application stopped after cloud cutover: Questrade rotates its
-refresh token, so two independent credential copies must not refresh concurrently.
-Do not copy Docker's database volume files while PostgreSQL is running.
-
-On EC2, build and start only the database first:
+Build the app and start only the database first:
 
 ```sh
 docker compose --env-file .env.aws -f compose.aws.yaml build api
 docker compose --env-file .env.aws -f compose.aws.yaml up -d --wait db
 ```
 
-Restore into the **fresh, empty** cloud database (no `--clean`):
+Restore only into a fresh, empty database, with no `--clean`:
 
 ```sh
 docker compose --env-file .env.aws -f compose.aws.yaml exec -T db \
   pg_restore -U aimoney -d aimoney --single-transaction --exit-on-error < data/backups/cloud-cutover.dump
 ```
 
-If restore fails, leave the API stopped and resolve the cause. Verify table counts
-against the source before enabling the web application. Existing cloud records
-must be reviewed before attempting another restore.
-
-## 4. Start and verify
-
-After DNS points to the Elastic IP:
+Verify business table counts against the source. Apply the authentication migration
+and manually provision the first approved email with `auth_admin.py` above.
+Then start the stack:
 
 ```sh
 docker compose --env-file .env.aws -f compose.aws.yaml up -d --wait
 ```
 
-Visit `https://aimoney.YOUR_DOMAIN` and log in. Caddy obtains and renews certificates;
-ports 80/443 must reach this instance. Verify unauthorized HTTPS requests get 401,
-authenticated `/api/health` responds 200, saved holdings and analyses load, scenario
-controls work, and a reviewed settings edit persists. Start with saved captures;
-quote refresh and OpenAI assessments are explicit actions.
+Verify TLS, `/signin`, unauthenticated portfolio API HTTP 401, email delivery,
+invalid/expired/replayed code rejection, session cookies, sign-out, and retained
+portfolio data. The minimal `/api/health` endpoint and login assets are public;
+application pages, API documentation and portfolio endpoints require a session.
+Start with saved captures; market refresh and paid OpenAI generation remain
+explicit actions.
 
-Only Caddy publishes ports. The application keeps one Uvicorn worker, uses the
-explicit HTTPS origin and ignores untrusted forwarded headers. Database and
-certificate volumes persist on the instance's EBS disk. Stop EC2 between sessions;
-never use `docker compose down -v` on the live stack.
+## Updates, rollback and backups
 
-Take logical PostgreSQL backups and copy them off the instance (planned S3 bucket).
-Validate restoration to a separate database. Removing EC2 storage or Docker volumes
-can remove the only copy if off-instance backups have not been configured.
+Back up PostgreSQL before an update. Use a reviewed commit/image and an explicit
+migration before enabling authentication. Retain the previous image and proxy
+configuration. During the first auth rollout keep Basic Auth in the running
+proxy until the new app's session gate is verified, then reload Caddy to remove
+the redundant prompt. If reverting to an app without session checks, restore
+Basic Auth before admitting public traffic. The additive auth tables can remain;
+never restore an old database over new portfolio writes just to roll back code.
 
-## Updating the app
-
-Back up PostgreSQL first, update to a reviewed Git commit, then build and replace
-only the application container with the same `.env.aws` and volume configuration.
-Future schema changes need explicit migrations; a new image alone is not a schema
-migration. Retain a previous image tag for rollback. PostgreSQL and Caddy data must
-not be recreated during an application update.
+PostgreSQL, application files and Caddy certificate volumes persist on EBS. Never
+run `docker compose down -v` on the live stack. Include authentication tables in
+logical database backups; preserve server secrets through a separate protected
+recovery path. Scheduled S3 backup uploads and restore drills remain planned.
+The pre-cutover local backup is not a substitute for recurring cloud backups.
