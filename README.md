@@ -11,6 +11,7 @@ reference with a past-month chart. The separate USD optimizer provides local sto
 Single-EC2 deployment in us-west-2: [setup and manual user administration](deploy/README.md).
 Email sign-in verifies active PostgreSQL users through single-use codes; there is no public registration.
 See the [authentication architecture](docs/authentication.md).
+Latest progress and next-session notes: [October 23 handoff](docs/progress-2026-10-23.md).
 The separate `compose.aws.yaml` adds Caddy HTTPS and login; `compose.yaml`
 continues to run the local application.
 
