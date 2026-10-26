@@ -1,5 +1,16 @@
 # Next to do
 
+## Known limitation — chart profit excludes prior rollovers
+
+Confirmed with the user October 26, 2026. The displayed chart profit accounts
+for only the latest call-option sale; it does not include previous rollover
+transactions. It therefore does not represent cumulative profit across the
+position's full history and should not be used as such when reconciling account
+value. A future correction needs to include all linked option premiums,
+buyback costs and fees, counting each transaction once.
+
+Documentation only for now; the user has not requested implementation.
+
 ## 1. Research intraday liquidity and trade timing
 
 Captured October 21, 2026 at the user's request. Documentation only; no model,

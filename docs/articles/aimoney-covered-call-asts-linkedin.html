@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Why I Built aiMoney to Make Covered-Call Decisions Clearer</title><style>*{box-sizing:border-box}body{margin:0;background:#f5f4ef;color:#202d36;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.75}article{max-width:900px;margin:48px auto;padding:48px 64px;background:white;border-top:5px solid #247b70;box-shadow:0 8px 40px #203b4310}h1{font-size:clamp(2rem,4vw,3rem);line-height:1.14;letter-spacing:-.04em;margin:0 0 20px}h2{font-size:1.4rem;line-height:1.3;margin-top:40px;color:#14685f}p{margin:18px 0}a{color:#14685f}img{width:100%;height:auto;border-radius:10px;margin-top:12px}em{color:#5c6d77}strong{font-weight:650}@media(max-width:650px){article{margin:0;padding:30px 22px}}@media print{body{background:white}article{margin:0;max-width:none;padding:0;box-shadow:none}h2{break-after:avoid}img{max-height:24cm;object-fit:contain}a{color:inherit}}</style></head><body><article><p>An attractive option premium doesn’t tell me whether rolling a covered call is a good decision.</p>
+<p>What does it cost to buy back the existing call? How much cash would closing release? Does rolling support my goal of keeping the shares—or freeing up cash?</p>
+<p>I built aiMoney, a covered-call scenario analytics tool, to make those trade-offs easier to examine.</p>
+<p>Using an ASTS position as an example, it combines:
+• A visual comparison of closing today and three rollover alternatives.
+• A stock-price slider for exploring hypothetical scenarios.
+• Estimated cash required to open each rollover.
+• An AI recommendation based on the selected scenario and objective.</p>
+<p>The calculations combine statistical simulation and option-pricing mathematics. AI helps interpret the results; it doesn’t place trades.</p>
+<p>Building it also exposed an accounting gap: the chart includes the latest call-sale premium but excludes previous rollover transactions. Its displayed profit therefore isn’t a complete measure of lifetime performance. Cash received, scenario profit and account performance are different measures.</p>
+<p>I’ve written about the problem, the ASTS walkthrough, and the app’s current capabilities and limitations on Medium:</p>
+<p>[Insert Medium article link]</p>
+<p>When evaluating a rollover, which do you look at first: the new premium, net cash flow, or the full position’s gain or loss?</p>
+<p>#OptionsTrading #CoveredCalls #Analytics #BuildingInPublic</p>
+</article></body></html>
