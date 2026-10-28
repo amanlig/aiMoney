@@ -18,7 +18,7 @@ def records(path=DB):
         return [dict(r) for r in db.execute('SELECT * FROM option_premiums ORDER BY settlement_date DESC,id DESC')]
 
 
-def save(data,path=DB):
+def save(data,path=DB, *, record_id=None):
     if not isinstance(data,dict) or data.get('reviewed') is not True:
         raise ValueError('Review the opening premium confirmation before saving.')
     value={k:data.get(k) for k in ['account','symbol','expiry','strike','contracts','settlement_date','price_usd','fees_usd','fx','net_cad']}
@@ -47,7 +47,12 @@ def save(data,path=DB):
     with connect(path) as db:
         try:
             columns=list(value)
-            record_id=db.insert_id(f'INSERT INTO option_premiums ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})',[value[k] for k in columns])
+            if record_id is None:
+                record_id=db.insert_id(f'INSERT INTO option_premiums ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})',[value[k] for k in columns])
+            else:
+                if not db.execute('SELECT id FROM option_premiums WHERE id=?',(record_id,)).fetchone():
+                    raise ValueError('Opening premium not found.')
+                db.execute('UPDATE option_premiums SET '+','.join(k+'=?' for k in columns if k!='created_at')+' WHERE id=?',[value[k] for k in columns if k!='created_at']+[record_id])
         except INTEGRITY_ERRORS:
             raise ValueError('This opening premium is already recorded.') from None
         return dict(db.execute('SELECT * FROM option_premiums WHERE id=?',(record_id,)).fetchone())
@@ -60,7 +65,7 @@ def usd_records(path=DB):
         return [dict(r) for r in db.execute('SELECT * FROM option_premium_sales_usd ORDER BY settlement_date DESC,id DESC')] if exists else []
 
 
-def save_usd(data,path=DB):
+def save_usd(data,path=DB, *, record_id=None):
     if not isinstance(data,dict) or data.get('reviewed') is not True:
         raise ValueError('Verify the option sale against your confirmation before saving.')
     account=data.get('account');symbol=str(data.get('symbol','')).strip().upper()
@@ -80,13 +85,18 @@ def save_usd(data,path=DB):
     strike=data['strike'];price=data['price_usd'];gross=round(price*contracts*100,2)
     if not math.isfinite(gross):raise ValueError('Premium is too large.')
     # Check both formats to avoid recording the same confirmation twice.
-    for r in records(path)+usd_records(path):
+    for r in records(path)+[r for r in usd_records(path) if r['id'] != record_id]:
         if (r['account'],r['symbol'],r['expiry'],r['strike'],r['contracts'],r['settlement_date'])==(account,symbol,expiry,strike,contracts,settlement):
             raise ValueError('This opening premium is already recorded.')
     with connect(path) as db:
         db.execute(SCHEMA['option_premium_sales_usd'])
         try:
-            record_id=db.insert_id('''INSERT INTO option_premium_sales_usd
+            if record_id is not None:
+                if not db.execute('SELECT id FROM option_premium_sales_usd WHERE id=?',(record_id,)).fetchone():
+                    raise ValueError('Opening premium not found.')
+                db.execute('UPDATE option_premium_sales_usd SET account=?,symbol=?,expiry=?,strike=?,contracts=?,settlement_date=?,price_usd=?,gross_usd=? WHERE id=?',(account,symbol,expiry,strike,contracts,settlement,price,gross,record_id))
+            else:
+                record_id=db.insert_id('''INSERT INTO option_premium_sales_usd
               (account,symbol,expiry,strike,contracts,settlement_date,price_usd,gross_usd,created_at)
               VALUES (?,?,?,?,?,?,?,?,?)''',(account,symbol,expiry,strike,contracts,settlement,price,gross,datetime.now(timezone.utc).isoformat()))
         except INTEGRITY_ERRORS:

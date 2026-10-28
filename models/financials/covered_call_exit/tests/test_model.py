@@ -13,10 +13,73 @@ class ExitModelTests(unittest.TestCase):
         q=dict(bidPrice=14,askPrice=15,bidSize=10,askSize=10,delay=0,isHalted=False)
         history=[dict(date=(today-timedelta(days=i)).isoformat(),close=40+((i%7)-3)*.15) for i in range(1,89) if (today-timedelta(days=i)).weekday()<5]
         return dict(opening_reference=dict(stock_total_usd=12500,option_total_usd=20000),initial_purchase_price_usd=25,as_of=today.isoformat(),shares=500,contracts=5,stock=dict(q,bidPrice=40,askPrice=40.1),held=dict(q,strike=40,expiry='2028-01-21'),history=history,candidates=[])
+    def test_cumulative_history_close_expire_and_saved_accounting(self):
+        data=self.fixture()
+        data['opening_reference'].update(historical_option_net_usd=2100, stock_cost_usd=12510)
+        quote=dict(data['held'], validated=True, strike=45, bidPrice=12, askPrice=13)
+        data['candidates']=[quote]
+        result=m.evaluate(data, paths=100)
+        close=next(r for r in result['rows'] if r['strategy']=='Close now')
+        self.assertEqual(close['net_profit_usd'], close['mean']+2100-12510)
+        expire=result['top_choices'][0]['expire_worthless']
+        self.assertEqual(expire['option_profit_usd'], 2100+expire['mean'])
+        cash=close['mean']
+        data['opening_reference']['historical_option_net_usd']=-500
+        m.apply_accounting(data,result)
+        self.assertEqual(close['mean'],cash)
+        self.assertEqual(close['net_profit_usd'],cash-500-12510)
+        self.assertEqual(expire['option_profit_usd'],expire['mean']-500)
+        data['opening_reference']['historical_option_net_usd']=None
+        m.apply_accounting(data,result)
+        self.assertFalse(result['profit_reference_available'])
+        self.assertEqual(result['top_choices'],[])
+        self.assertIsNone(close['net_profit_usd'])
+        self.assertIsNone(expire['option_profit_usd'])
+
+    def test_realized_and_unrealized_sum_to_total_and_slider_does_not_realize(self):
+        data=self.fixture()
+        data['opening_reference'].update(prior_realized_option_usd=1500,active_realized_option_usd=200)
+        data['candidates']=[dict(data['held'],validated=True,strike=45,bidPrice=12,askPrice=13)]
+        result=m.evaluate(data,paths=100)
+        for row in result['rows']:
+            self.assertEqual(row['realized_pl_usd'],1700)
+            self.assertAlmostEqual(row['realized_pl_usd']+row['unrealized_pl_usd'],row['total_pl_usd'])
+            self.assertEqual(row['total_pl_usd'],row['net_profit_usd']+1500)
+        expire=result['top_choices'][0]['expire_worthless']
+        self.assertEqual(expire['realized_pl_usd'],1700)
+        self.assertEqual(expire['total_pl_usd'],expire['option_profit_usd']+1500)
+        shifted=m.evaluate(m.stock_price_scenario(data,44),paths=100)
+        self.assertTrue(all(r['realized_pl_usd']==1700 for r in shifted['rows']))
+        original=next(r for r in result['rows'] if r['strategy']=='Close now')
+        changed=next(r for r in shifted['rows'] if r['strategy']=='Close now')
+        self.assertNotEqual(original['unrealized_pl_usd'],changed['unrealized_pl_usd'])
+        data['opening_reference']['prior_realized_option_usd']=None
+        m.apply_accounting(data,result)
+        self.assertIsNone(result['rows'][0]['realized_pl_usd'])
+        self.assertIsNone(result['rows'][0]['total_pl_usd'])
+
     def test_close_cash_and_seed(self):
         d=self.fixture();r=m.evaluate(d,paths=100)
         self.assertEqual(r['baseline'],12500)
         self.assertEqual(r,m.evaluate(d,paths=100))
+
+    def test_recorded_expiry_is_visible_while_current_history_is_incomplete(self):
+        data=self.fixture()
+        data['opening_reference'].update(history_status='incomplete',historical_option_net_usd=None,
+                                        prior_realized_option_usd=790,realized_sources=[dict(position_id='earlier')])
+        result=m.evaluate(data,paths=100)
+        row=result['rows'][0]
+        self.assertEqual(row['realized_pl_usd'],790)
+        self.assertTrue(row['realized_pl_partial'])
+        self.assertIsNone(row['unrealized_pl_usd'])
+        self.assertIsNone(row['total_pl_usd'])
+        self.assertIsNone(row['net_profit_usd'])
+        shifted=m.evaluate(m.stock_price_scenario(data,44),paths=100)
+        self.assertEqual(shifted['rows'][0]['realized_pl_usd'],790)
+        data['opening_reference']['realized_sources']=[]
+        m.apply_accounting(data,result)
+        self.assertIsNone(row['realized_pl_usd'])
+        self.assertFalse(row['realized_pl_partial'])
     def test_candidate_band_and_liability(self):
         d=self.fixture();q=dict(d['held'],validated=True,strike=45,bidPrice=12,askPrice=13)
         d['candidates']=[q,dict(q,strike=40.05),dict(q,expiry='2029-01-22'),dict(q,delay=15)]

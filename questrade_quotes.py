@@ -5,6 +5,7 @@ from decimal import Decimal
 import getpass
 import json
 import os
+import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
@@ -16,6 +17,25 @@ from fx_sources import select_latest, timestamp
 
 class ImporterError(ValueError):
     """An explicitly safe message containing no credentials or server payload."""
+
+
+class BrokerNotConfigured(ImporterError):
+    """The app has no usable local broker authorization; no network call was made."""
+
+
+def saved_refresh_token(path):
+    path=Path(path)
+    if not path.is_file():
+        raise BrokerNotConfigured('Questrade authorization is not configured for this app. Live quote refresh is unavailable.')
+    if path.stat().st_mode & 0o077:
+        raise BrokerNotConfigured('The Questrade authorization file must be private. Check this app’s broker setup.')
+    try:
+        value=json.loads(path.read_text()).get('refresh_token')
+    except (OSError,ValueError,AttributeError):
+        raise BrokerNotConfigured('The saved Questrade authorization is invalid. Reconnect this app to Questrade.') from None
+    if not isinstance(value,str) or not value.strip() or any(c.isspace() for c in value):
+        raise BrokerNotConfigured('The saved Questrade authorization is invalid. Reconnect this app to Questrade.')
+    return value
 
 
 def fetch(url, token=None, json_body=None):
@@ -52,12 +72,13 @@ def fetch(url, token=None, json_body=None):
 
 
 def authorize(path, new_token=False):
-    if path.exists() and not new_token:
-        if path.stat().st_mode & 0o077:
-            raise ImporterError('Token file must be private: chmod 600 on the token file')
-        refresh = json.loads(path.read_text())['refresh_token']
+    path=Path(path)
+    if not new_token and path.is_file():
+        refresh=saved_refresh_token(path)
+    elif new_token or sys.stdin.isatty():
+        refresh=getpass.getpass('Questrade manual authorization token (hidden): ').strip()
     else:
-        refresh = getpass.getpass('Questrade manual authorization token (hidden): ').strip()
+        refresh=saved_refresh_token(path)
     if not refresh:
         raise ImporterError('An API token is required')
     response = fetch('https://login.questrade.com/oauth2/token?' + urlencode(
@@ -91,7 +112,7 @@ def call_id(chain, position):
             if root.get('multiplier') is not None and Decimal(str(root['multiplier'])) != Decimal(str(position['contract_multiplier'])):
                 continue
             for strike in root['chainPerStrikePrice']:
-                if Decimal(str(strike['strikePrice'])) == Decimal(position['call_strike_native_currency']):
+                if Decimal(str(strike['strikePrice'])) == Decimal(str(position['call_strike_native_currency'])):
                     matches.append(strike['callSymbolId'])
     if len(matches) != 1:
         raise ImporterError(f"{position['symbol']}: could not uniquely match standard call strike/expiry/multiplier")

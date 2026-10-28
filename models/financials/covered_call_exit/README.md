@@ -105,3 +105,10 @@ opening held-call ask buyback, replacement bid premium, net debit floored at zer
 and net credit floored at zero. This is gross USD trade funding, not a broker
 margin calculation or account cash-shortfall estimate. Future closing liabilities
 and historical opening premium are not counted as available rollover funding.
+
+Version 1.13 permits confirmed earlier expired-cycle P/L to remain visible while
+the active call's history is incomplete. `realized_pl_partial` identifies this
+recorded amount. Unrealized, current-cycle and total P/L remain null until the
+active history is complete; neither a missing opening nor a prospective slider
+scenario realizes a gain. Expired premiums are attributed through retained-share
+sources once and are excluded from the active cycle's opening cash flows.

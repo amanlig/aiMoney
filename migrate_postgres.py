@@ -7,7 +7,7 @@ from database import DB, connect
 from database_schema import STATEMENTS
 
 TABLES = ('samples', 'stock_cost_basis', 'option_premiums',
-          'option_premium_sales_usd', 'recommendation_runs')
+          'option_premium_sales_usd', 'option_rollovers', 'closed_holdings', 'covered_positions', 'covered_position_rollovers', 'option_expirations', 'position_share_sources', 'deleted_position_sources', 'deleted_share_sources', 'recommendation_runs')
 
 
 def initialize(db):
@@ -26,13 +26,13 @@ def migrate(source=DB, url=None):
         names = {r['name'] for r in legacy.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
         if names - set(TABLES):
             raise ValueError('Unknown source tables; review schema before migration.')
-        snapshot = {table: [dict(r) for r in legacy.execute(f'SELECT * FROM {table} ORDER BY id')]
+        snapshot = {table: [dict(r) for r in legacy.execute(f'SELECT * FROM {table} ORDER BY '+('source_key' if table=='deleted_position_sources' else 'id'))]
                     if table in names else [] for table in TABLES}
     with connect(url=url) as db:
         db.execute("SELECT pg_advisory_xact_lock(72498123)")
         initialize(db)
         db.execute('LOCK TABLE ' + ','.join(TABLES) + ' IN ACCESS EXCLUSIVE MODE')
-        existing = {table: [dict(r) for r in db.execute(f'SELECT * FROM {table} ORDER BY id')] for table in TABLES}
+        existing = {table: [dict(r) for r in db.execute(f'SELECT * FROM {table} ORDER BY '+('source_key' if table=='deleted_position_sources' else 'id'))] for table in TABLES}
         if any(existing.values()):
             if existing == snapshot:
                 return {table: len(rows) for table, rows in snapshot.items()}
@@ -42,10 +42,11 @@ def migrate(source=DB, url=None):
                 # Identifiers come only from the known application schema.
                 columns = ','.join('"' + key.replace('"', '""') + '"' for key in row)
                 db.execute(f'INSERT INTO {table} ({columns}) VALUES ({",".join("?" for _ in row)})', tuple(row.values()))
-            copied = [dict(r) for r in db.execute(f'SELECT * FROM {table} ORDER BY id')]
+            copied = [dict(r) for r in db.execute(f'SELECT * FROM {table} ORDER BY '+('source_key' if table=='deleted_position_sources' else 'id'))]
             if copied != rows:
                 raise ValueError(f'Verification failed for {table}; transaction rolled back.')
-            db.execute(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), COALESCE(MAX(id),1), COUNT(*)>0) FROM {table}")
+            if table not in {'covered_positions','covered_position_rollovers','option_expirations','position_share_sources','deleted_position_sources','deleted_share_sources'}:
+                db.execute(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), COALESCE(MAX(id),1), COUNT(*)>0) FROM {table}")
     return {table: len(rows) for table, rows in snapshot.items()}
 
 

@@ -5,7 +5,7 @@ import math
 import random
 import statistics
 
-VERSION = '1.10'
+VERSION = '1.13'
 
 def month_shift(day, months):
     year, month = divmod(day.year * 12 + day.month - 1 + months, 12)
@@ -122,7 +122,7 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04):
             quote=next(q for q in data['candidates'] if q['expiry']==row['expiry'] and q['strike']==row['strike'])
             row['expire_worthless']=expire_worthless_outcome(data,quote)
     reference=data.get('opening_reference',{})
-    stock_cost=reference.get('stock_total_usd');premium=reference.get('option_total_usd')
+    stock_cost=reference.get('stock_cost_usd',reference.get('stock_total_usd'));premium=reference.get('historical_option_net_usd',reference.get('option_total_usd'))
     known=all(isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v) for v in (stock_cost,premium))
     for row in rows:
         row['net_profit_usd']=row['mean']+premium-stock_cost if known else None
@@ -130,15 +130,16 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04):
     top_choices=sorted((row for row in rows if row['strategy']=='Roll then close' and row['net_profit_usd'] is not None),
                        key=lambda row:row['net_profit_usd'],reverse=True)[:3]
 
-    return dict(version=VERSION,top_choices=top_choices,profit_reference_available=known,
+    result=dict(version=VERSION,top_choices=top_choices,profit_reference_available=known,
                 search=dict(minimum_strike=max(1.2*purchase,spot),minimum_exclusive=spot>=1.2*purchase,maximum_strike=None,first_expiry=(today+timedelta(days=1)).isoformat(),last_expiry=month_shift(expiry,12).isoformat()),initial_purchase_price_usd=purchase,minimum_stock_sale_price_usd=floor,
                 constraint='Rank the three best net profits regardless of profit sign or sale-floor eligibility. Sale-floor flags remain visible; strike/expiry and quote-quality filters remain enforced. Future market prices are not guaranteed.',rows=rows,baseline=baseline,excluded=excluded,paths=paths,seed=seed,
                 history_count=len(closes),history_start=history[0]['date'],history_end=history[-1]['date'],
                 realized_volatility=statistics.stdev(returns)*math.sqrt(252),held_implied_volatility=held_iv,
                 objective='Highest simulated mean discounted USD liquidation wealth; not a validated profit forecast',
                 assumptions=['Three-month daily-return bootstrap; historical drift retained', 'Constant calibrated volatility; European call approximation; no dividends or early assignment',
-                "Today's spreads held constant; fees excluded; no taxes; USD retained", 'Rollover credit is cash received, not profit; remaining option liability is deducted at the common horizon',
+                "Today's spreads held constant; future execution fees excluded; recorded historical fees included; no taxes; USD retained", 'Rollover credit is cash received, not profit; remaining option liability is deducted at the common horizon',
                 'No historical option-chain backtest; probabilities describe model paths only'])
+    return apply_accounting(data,result)
 
 
 def stock_price_scenario(data, price, rate=0.04):
@@ -181,14 +182,16 @@ def expire_worthless_outcome(data, replacement):
     original_buyback=count*data['held']['askPrice']
     new_premium=count*replacement['bidPrice']
     net_cash=new_premium-original_buyback
-    original_premium=data.get('opening_reference',{}).get('option_total_usd')
+    reference=data.get('opening_reference',{})
+    original_premium=reference.get('historical_option_net_usd',reference.get('option_total_usd'))
     option_profit=original_premium+net_cash if isinstance(original_premium,(int,float)) and not isinstance(original_premium,bool) and math.isfinite(original_premium) else None
-    return dict(strategy='Roll then expire worthless',exit_mode='expire',days=None,
+    outcome=dict(strategy='Roll then expire worthless',exit_mode='expire',days=None,
                 expiry=replacement['expiry'],strike=replacement['strike'],mean=net_cash,
                 cash_flows=dict(stock_sale=0,option_purchase=-original_buyback,option_sale=new_premium),
                 stock_retained=data['shares'],replacement_buyback_usd=0,held_buyback_usd=original_buyback,
                 option_profit_usd=option_profit,net_profit_usd=None,
                 roll_funding=rollover_funding(data,replacement),assumption='Conditional on replacement call expiring worthless with no assignment; stock retained, stock gain/loss excluded.')
+    return pnl_segments(data,outcome,option_profit)
 
 
 def rollover_funding(data, replacement):
@@ -199,3 +202,39 @@ def rollover_funding(data, replacement):
     return dict(held_buyback_usd=buyback,replacement_premium_usd=premium,
                 net_debit_usd=max(0,buyback-premium),net_credit_usd=max(0,premium-buyback),
                 note='Estimated net rollover debit before fees, assuming simultaneous legs. Does not measure broker buying power, account cash shortfall or margin requirement.')
+
+
+def apply_accounting(data, result):
+    """Update historical accounting without repricing saved future cash flows."""
+    reference=data.get('opening_reference',{})
+    cost=reference.get('stock_cost_usd',reference.get('stock_total_usd'))
+    net=reference.get('historical_option_net_usd',reference.get('option_total_usd'))
+    finite=lambda v: isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v)
+    known=finite(cost) and finite(net)
+    for row in result.get('rows',[]):
+        row['net_profit_usd']=row['mean']+net-cost if known else None
+        pnl_segments(data,row,row['net_profit_usd'])
+        if row.get('expire_worthless'):
+            expire=row['expire_worthless']
+            expire['option_profit_usd']=net+expire['mean'] if finite(net) else None
+            pnl_segments(data,expire,expire['option_profit_usd'])
+    result['top_choices']=sorted((r for r in result.get('rows',[]) if r['strategy']=='Roll then close' and r['net_profit_usd'] is not None),key=lambda r:r['net_profit_usd'],reverse=True)[:3]
+    result['profit_reference_available']=known
+    return result
+
+
+def pnl_segments(data,row,current_cycle_pl):
+    """Recorded results stay realized; prospective scenarios do not realize anything."""
+    reference=data.get('opening_reference',{})
+    prior=reference.get('prior_realized_option_usd',0)
+    closed_calls=reference.get('active_realized_option_usd',0)
+    finite=lambda x:isinstance(x,(int,float)) and not isinstance(x,bool) and math.isfinite(x)
+    row['realized_pl_usd']=prior+closed_calls if finite(prior) and finite(closed_calls) else None
+    row['realized_pl_partial']=False
+    if reference.get('history_status')=='incomplete':
+        row['realized_pl_usd']=prior if finite(prior) and reference.get('realized_sources') else None
+        row['realized_pl_partial']=row['realized_pl_usd'] is not None
+    row['unrealized_pl_usd']=current_cycle_pl-closed_calls if finite(current_cycle_pl) and finite(closed_calls) else None
+    row['total_pl_usd']=current_cycle_pl+prior if finite(current_cycle_pl) and finite(prior) else None
+    row['current_cycle_pl_usd']=current_cycle_pl
+    return row

@@ -26,6 +26,41 @@ STATEMENTS = (
           settlement_date TEXT NOT NULL, price_usd REAL NOT NULL, gross_usd REAL NOT NULL,
           created_at TEXT NOT NULL,
           UNIQUE(account,symbol,expiry,strike,contracts,settlement_date))""",
+    """CREATE TABLE IF NOT EXISTS option_rollovers (
+      id INTEGER PRIMARY KEY, account TEXT NOT NULL, symbol TEXT NOT NULL,
+      settlement_date TEXT NOT NULL, contracts INTEGER NOT NULL,
+      buyback_expiry TEXT NOT NULL, buyback_strike REAL NOT NULL, buyback_price_usd REAL NOT NULL,
+      sale_expiry TEXT NOT NULL, sale_strike REAL NOT NULL, sale_price_usd REAL NOT NULL,
+      fees_usd REAL NOT NULL, buyback_total_usd REAL NOT NULL, sale_total_usd REAL NOT NULL,
+      net_cash_usd REAL NOT NULL, created_at TEXT NOT NULL,
+      UNIQUE(account,symbol,settlement_date,contracts,buyback_expiry,buyback_strike,sale_expiry,sale_strike))""",
+    """CREATE TABLE IF NOT EXISTS closed_holdings (
+      id INTEGER PRIMARY KEY, position_key TEXT NOT NULL UNIQUE,
+      account TEXT NOT NULL, symbol TEXT NOT NULL, close_date TEXT NOT NULL,
+      shares REAL NOT NULL, contracts INTEGER NOT NULL, expiry TEXT NOT NULL, strike REAL NOT NULL,
+      stock_price_usd REAL NOT NULL, buyback_price_usd REAL NOT NULL, fees_usd REAL NOT NULL,
+      stock_sale_usd REAL NOT NULL, buyback_total_usd REAL NOT NULL, closing_cash_usd REAL NOT NULL,
+      realized_pl_usd REAL, position_json TEXT NOT NULL, accounting_json TEXT NOT NULL,
+      created_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS covered_positions (
+      id TEXT PRIMARY KEY, account TEXT NOT NULL, symbol TEXT NOT NULL,
+      shares REAL NOT NULL, contracts INTEGER NOT NULL, expiry TEXT NOT NULL, strike REAL NOT NULL,
+      source_key TEXT UNIQUE, base_json TEXT NOT NULL, opening_json TEXT,
+      opening_source TEXT UNIQUE, created_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS covered_position_rollovers (
+      id TEXT PRIMARY KEY, position_id TEXT NOT NULL REFERENCES covered_positions(id),
+      source_key TEXT UNIQUE, record_json TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS option_expirations (
+      id TEXT PRIMARY KEY REFERENCES covered_positions(id), account TEXT NOT NULL, symbol TEXT NOT NULL,
+      expiry TEXT NOT NULL, strike REAL NOT NULL, contracts INTEGER NOT NULL, shares_retained REAL NOT NULL,
+      fees_usd REAL NOT NULL, cash_flow_usd REAL NOT NULL, realized_option_pl_usd REAL,
+      position_json TEXT NOT NULL, accounting_json TEXT NOT NULL, created_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS position_share_sources (
+      id TEXT PRIMARY KEY REFERENCES covered_positions(id), links_json TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS deleted_position_sources (
+      source_key TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS deleted_share_sources (
+      id TEXT PRIMARY KEY, created_at TEXT NOT NULL, links_json TEXT NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS recommendation_runs (
       id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, model TEXT NOT NULL,
       prompt_version TEXT NOT NULL, snapshot_json TEXT NOT NULL,

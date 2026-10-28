@@ -53,3 +53,28 @@ establish date and timezone. A missing FX input stops before authorization.
 API tokens stay in `.secrets/questrade.json` with owner-only permissions. Use
 `--new-token` to prompt for a newly generated manual authorization token.
 The importer uses market endpoints only and does not submit orders.
+
+## Local preview alongside AWS
+
+The local source preview uses a separate private directory at
+`.secrets/local-preview/`; the server's Questrade token copy is never mounted.
+Create a separate personal application named **aiMoney Local** in Questrade API
+Centre and generate its manual authorization token. Keep the cloud application's
+authorization unchanged. Questrade documents the app registration and manual-token
+steps at https://www.questrade.com/api/documentation/getting-started.
+
+Run on the local host in this repository (not inside the container):
+
+```sh
+python3 setup_questrade_local.py
+docker compose -f compose.yaml -f compose.local-preview.yaml up -d --no-build api
+```
+
+The prompt hides the token; never paste it into chat, a command argument or source.
+The directory is private (700), the token file is 600, and only this dedicated
+directory is writable/mounted for local refresh-token rotation. The setup refuses
+a token matching the old shared copy. No live authentication occurs until an
+explicit refresh. A missing authorization fails before any history/network request
+and never prompts from a web worker. Provider-history errors identify Yahoo
+Finance separately; the UI mentions retained results once, only if a saved result
+exists. Startup still disables automatic macro refresh and local sign-in.

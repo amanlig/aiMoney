@@ -1,0 +1,21 @@
+# Local source preview with a dedicated broker authorization, never the cloud token copy.
+# docker compose -f compose.yaml -f compose.local-preview.yaml up -d --no-build api
+services:
+  api:
+    image: aimoney:latest
+    volumes:
+      - type: bind
+        source: .
+        target: /app
+        read_only: true
+      - type: bind
+        source: ./.secrets/local-preview
+        target: /app/.secrets
+        read_only: false
+        bind:
+          create_host_path: false
+          propagation: rprivate
+    command:
+      - python
+      - -c
+      - "import uvicorn; from dashboard_server import create_app; uvicorn.run(create_app(refresh_macro=False, auth_enabled=False), host='0.0.0.0', port=8765, proxy_headers=False)"

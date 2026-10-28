@@ -5,19 +5,28 @@ import importlib.util
 import json
 from pathlib import Path
 from urllib.parse import urlencode, quote
+from urllib.error import HTTPError, URLError
 from zoneinfo import ZoneInfo
 from macro_data import fetch as public_fetch
-from questrade_quotes import authorize, fetch, call_id, validate_contract, ImporterError
+from questrade_quotes import authorize, fetch, call_id, validate_contract, ImporterError, saved_refresh_token, BrokerNotConfigured
 from market_details import metrics
 import stock_basis
 import option_premiums
+import option_rollovers
+import position_history
+import closed_holdings
+import covered_positions
 from roll_candidates import INPUTS, listed_calls
 
 ROOT=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('covered_call_exit_model',ROOT/'models/financials/covered_call_exit/model.py')
 model=importlib.util.module_from_spec(spec);spec.loader.exec_module(model)
 
-def holdings():
+class StockHistoryUnavailable(ImporterError):
+    """The public stock-history provider failed before broker authorization."""
+
+
+def source_holdings():
     result=[]
     for account,name in INPUTS.items():
         for p in json.loads((ROOT/'data'/name).read_text())['positions']:
@@ -25,32 +34,139 @@ def holdings():
                 result.append(dict(account=account,**p))
     return result
 
+
+def inventory():
+    result={}
+    with covered_positions.transaction() as db:
+        excluded={r['source_key'] for r in db.execute('SELECT source_key FROM deleted_position_sources')}
+    for account,name in INPUTS.items():
+        for p in json.loads((ROOT/'data'/name).read_text())['positions']:
+            if p.get('shares'):
+                if p.get('call_contracts') and closed_holdings.position_key(dict(account=account,**p)) in excluded:continue
+                pair=(account,p['symbol']);result[pair]=result.get(pair,0)+float(p['shares'])
+    for basis in stock_basis.records():
+        pair=(basis['account'],basis['symbol'])
+        if basis['currency']=='USD' or pair not in result:result[pair]=basis['quantity']
+    with covered_positions.transaction() as db:
+        allocated={}
+        for row in covered_positions.rows(db):
+            if not covered_positions.is_expired(db,row['id']):
+                pair=(row['account'],row['symbol']);allocated[pair]=allocated.get(pair,0)+row['shares']
+        for pair,quantity in allocated.items():result[pair]=max(result.get(pair,0),quantity)
+    return result
+
+
+def holdings(*, include_closed=False):
+    raw=source_holdings()
+    covered_positions.synchronize(raw)
+    with covered_positions.transaction() as db:
+        covered_positions.retain_stock_holdings(raw,db=db)
+        result=[dict(covered_positions.holding(row),option_expired=covered_positions.is_expired(db,row['id'])) for row in covered_positions.rows(db)]
+    closed=set() if include_closed else {r['position_key'] for r in closed_holdings.records()}
+    return [h for h in result if h['position_id'] not in closed and (include_closed or not h.get('option_expired'))]
+
+
+def select_holding(request):
+    matches=[h for h in holdings() if h['account']==request.get('account') and h['symbol']==request.get('symbol')
+             and (not request.get('position_id') or h.get('position_id')==request['position_id'])]
+    if len(matches)!=1: raise ValueError('Choose one specific covered-call position.')
+    return matches[0]
+
+
+def capture_path(account,symbol,position_id=None,root=None):
+    suffix='-'+position_id if position_id else ''
+    return Path(root or ROOT)/'reports'/f'exit-optimizer-{account.lower()}-{symbol.lower()}{suffix}.json'
+
+
+def load_capture(request,root=None):
+    position_id=request.get('position_id')
+    path=capture_path(request['account'],request['symbol'],position_id,root)
+    if position_id:
+        h=select_holding(request)
+        if not path.exists():
+            if not h.get('legacy_position'): return None
+            path=capture_path(request['account'],request['symbol'],root=root)
+        if not path.exists(): return None
+        capture=json.loads(path.read_text());data=capture.get('inputs',{})
+        if data.get('position_id') not in [None,position_id] or data.get('shares')!=h['shares'] or data.get('contracts')!=h['call_contracts'] or (data.get('held',{}).get('expiry'),data.get('held',{}).get('strike'))!=(h['call_expiry'],float(h['call_strike_native_currency'])):
+            return None
+        data['position_id']=position_id
+    else:
+        if not path.exists(): return None
+        capture=json.loads(path.read_text())
+        if not {'held','shares','contracts'} <= capture.get('inputs',{}).keys(): return reaccount_capture(capture)
+        matches=[h for h in holdings() if h['account']==request['account'] and h['symbol']==request['symbol']]
+        if len(matches)>1: raise ValueError('Select a position ID; this ticker has multiple positions.')
+        capture=json.loads(path.read_text())
+        if matches and matches[0].get('position_id') and 'held' in capture.get('inputs',{}): capture['inputs']['position_id']=matches[0]['position_id']
+    return reaccount_capture(capture)
+
 def purchase_price(account, symbol):
     currency='USD' if account=='LIRA' else 'CAD'
-    basis=stock_basis.get(account,symbol,currency)
+    try:
+        basis=stock_basis.get(account,symbol,'USD')
+    except ValueError:
+        basis=stock_basis.get(account,symbol,currency)
     price=basis.get('priceUsd')
     if not isinstance(price,(int,float)) or isinstance(price,bool) or not 0 < price < float('inf'):
         raise ValueError('Save the original USD purchase price in dashboard Profile settings first.')
     return price
 
-def opening_reference(account, symbol, held, shares, contracts):
+def opening_reference(account, symbol, held, shares, contracts, position_id=None, transaction=None):
     price=purchase_price(account,symbol)
-    matches=[r for r in option_premiums.records()+option_premiums.usd_records() if r['account']==account and r['symbol']==symbol
-             and r['expiry']==held['expiry'] and float(r['strike'])==float(held['strike']) and r['contracts']==contracts]
-    premium=matches[0] if len(matches)==1 else None
-    return dict(stock_price_usd=price,stock_total_usd=price*shares,
-                option_price_usd=premium['price_usd'] if premium else None,
-                option_total_usd=premium['price_usd']*contracts*100 if premium else None,
-                option_settlement_date=premium['settlement_date'] if premium else None,
-                source='Database stock_cost_basis and exact-match option_premiums or option_premium_sales_usd; gross amounts, fees excluded')
+    if position_id:
+        saved=covered_positions.history(position_id,db=transaction)
+        history=position_history.resolve(account,symbol,held,contracts,[saved['opening']] if saved['opening'] else [],saved['rollovers'])
+        # A position owns its original sale even while its rollover chain is incomplete.
+        # Display that receipt without treating it as the net cash for the current call.
+        if saved['opening']:
+            opening=saved['opening']
+            history.update(option_total_usd=opening['price_usd']*opening['contracts']*100,
+                           option_price_usd=opening['price_usd'],option_settlement_date=opening['settlement_date'],
+                           original_option_expiry=opening['expiry'],original_option_strike=opening['strike'],
+                           opening_record_id=opening['id'])
+            if history['history_status']=='incomplete' and history['history_note'].startswith('Record exactly one original opening'):
+                history['history_note']='The original opening sale is recorded, but the rollover history does not yet connect it to the current call. Record each missing rollover to calculate cumulative P/L.'
+        history.update(covered_positions.prior_realized(position_id,db=transaction))
+        if not saved['opening'] and history.get('realized_sources'):
+            history['history_note']='Earlier expired-call gains are recorded. Record the current call’s opening sale and any rollovers to complete its P/L.'
+    else:
+        history=position_history.resolve(account, symbol, held, contracts,
+            option_premiums.records()+option_premiums.usd_records(), option_rollovers.records())
+    currency='USD' if account=='LIRA' else 'CAD'
+    try:
+        basis=stock_basis.get(account,symbol,'USD')
+    except ValueError:
+        basis=stock_basis.get(account,symbol,currency)
+    stock_fees=(basis.get('feesUsd') or 0)*shares/basis['quantity']
+    own=saved.get('position',{}).get('stock_purchase') if position_id else None
+    if own:
+        price=own['priceUsd'];stock_fees=(own.get('feesUsd') or 0)*shares/own['quantity']
+    reference=dict(stock_price_usd=price, stock_total_usd=price*shares,
+                   stock_cost_usd=price*shares+stock_fees, stock_fees_usd=stock_fees,
+                   option_total_usd=None, option_price_usd=None,
+                   source='Saved USD purchase price and proportional purchase fees; opening sale plus linked rollovers, each counted once')
+    reference.update(history)
+    return reference
+
+
+def reaccount_capture(capture):
+    """Use current transaction records with saved quotes; no market refresh or file write."""
+    import copy
+    result=copy.deepcopy(capture)
+    data=result.get('inputs', {})
+    if not {'account','symbol','held','shares','contracts'} <= data.keys() or not {'expiry','strike'} <= data['held'].keys() or 'result' not in result:
+        return result
+    data['opening_reference']=opening_reference(data['account'],data['symbol'],data['held'],data['shares'],data['contracts'],data.get('position_id'))
+    model.apply_accounting(data, result['result'])
+    return result
 
 def scenario(request):
     account=request.get('account');symbol=request.get('symbol')
-    if not any(p['account']==account and p['symbol']==symbol for p in holdings()):
-        raise ValueError('Choose a saved holding')
-    path=ROOT/'reports'/f'exit-optimizer-{account.lower()}-{symbol.lower()}.json'
-    if not path.exists():raise ValueError('Refresh data & analyze first')
-    capture=json.loads(path.read_text());original=capture['inputs']
+    select_holding(request)
+    capture=load_capture(request)
+    if capture is None: raise ValueError('Refresh data & analyze this position first.')
+    original=capture['inputs']
     inputs=model.stock_price_scenario(original,request.get('stock_price'))
     result=model.evaluate(inputs)
     return dict(inputs=inputs,result=result,scenario=dict(stock_price=request['stock_price'],
@@ -59,13 +175,19 @@ def scenario(request):
 
 def run(request):
     account=request.get('account','RRSP'); symbol=request.get('symbol','ASTS')
-    matches=[p for p in holdings() if p['account']==account and p['symbol']==symbol]
-    if len(matches)!=1: raise ValueError('Choose one saved covered-call holding')
-    p=matches[0]; horizon=request.get('horizon',30)
-    initial_purchase=purchase_price(account,symbol)
+    p=select_holding(dict(request,account=account,symbol=symbol)); horizon=request.get('horizon',30)
+    if p.get('call_contracts')==0:raise ValueError('Record the option opening sale for this stock holding before analyzing covered calls.')
+    if p.get('can_mark_expired'):raise ValueError('Complete this historical call’s buyback/rollover or actual expiry record before refreshing current quotes.')
+    initial_purchase=p['stock_purchase']['priceUsd'] if p.get('stock_purchase') else purchase_price(account,symbol)
     if type(horizon) is not int or not 1<=horizon<=63: raise ValueError('Invalid horizon')
     today=datetime.now(ZoneInfo('America/Vancouver')).date()
-    history_response=public_fetch('https://query1.finance.yahoo.com/v8/finance/chart/'+quote(symbol,safe='')+'?range=3mo&interval=1d')['chart']['result'][0]
+    saved_refresh_token(ROOT/'.secrets/questrade.json')
+    try:
+        history_response=public_fetch('https://query1.finance.yahoo.com/v8/finance/chart/'+quote(symbol,safe='')+'?range=3mo&interval=1d')['chart']['result'][0]
+    except HTTPError as error:
+        raise StockHistoryUnavailable(f'Stock price history is unavailable from Yahoo Finance (HTTP {error.code}).') from None
+    except (URLError,OSError,ValueError,KeyError,IndexError,TypeError):
+        raise StockHistoryUnavailable('Stock price history is unavailable from Yahoo Finance. Try refreshing later.') from None
     if history_response['meta']['currency']!='USD' or history_response['meta']['symbol']!=symbol: raise ValueError('Requires USD stock history')
     history=[dict(date=datetime.fromtimestamp(t,timezone.utc).date().isoformat(),close=c)
              for t,c in zip(history_response['timestamp'],history_response['indicators']['quote'][0]['close']) if c is not None]
@@ -99,10 +221,11 @@ def run(request):
     captured=datetime.now(timezone.utc).isoformat()
     data=dict(initial_purchase_price_usd=initial_purchase,as_of=today.isoformat(),account=account,symbol=symbol,shares=p['shares'],contracts=p['call_contracts'],stock=metrics(stock),held=quotes[old_id],history=history,candidates=[q for oid,q in quotes.items() if oid!=old_id],captured_at=captured,
               sources=dict(purchase_price='Database stock_cost_basis.price_usd for this account and symbol',history='Yahoo Finance daily closes (unadjusted)',options='Questrade API verified listed standard calls',future_prices='Return bootstrap + midpoint-calibrated constant-volatility call approximation'))
-    data['opening_reference']=opening_reference(account,symbol,data['held'],data['shares'],data['contracts'])
+    data['position_id']=p['position_id']
+    data['opening_reference']=opening_reference(account,symbol,data['held'],data['shares'],data['contracts'],data['position_id'])
     result=model.evaluate(data,horizon=horizon)
     output=dict(inputs=data,result=result)
-    target=ROOT/'reports'/f'exit-optimizer-{account.lower()}-{symbol.lower()}.json'
+    target=capture_path(account,symbol,p['position_id'])
     temporary=target.with_suffix('.tmp');temporary.write_text(json.dumps(output,indent=2));temporary.replace(target)
     return output
 

@@ -58,3 +58,12 @@ __pycache__/
 # Manual EC2 deployment source (credentials remain ignored).
 !/compose.aws.yaml
 !/deploy/
+!/tests/test_public_option_rollovers.py
+!/tests/test_public_position_history.py
+!/tests/test_public_closed_holdings.py
+!/tests/test_public_covered_positions.py
+!/tests/test_public_option_expiration.py
+!/tests/test_public_realized_pnl.py
+!/tests/test_public_broker_setup.py
+!/compose.local-preview.yaml
+!/tests/test_public_holding_records.py

@@ -1,4 +1,7 @@
 body{font:15px system-ui;color:#18324f;background:#f3f7fb;margin:0}main{max-width:1200px;margin:auto;padding:28px}section{background:white;padding:22px;border:1px solid #dae3ee;border-radius:14px;margin:20px 0}p{line-height:1.6;color:#50647b}label{display:inline-flex;flex-direction:column;gap:6px;margin:8px 20px 8px 0}input,select,button{font:inherit;padding:10px;border:1px solid #aebed0;border-radius:7px}button{background:#245da8;color:white;cursor:pointer}button:disabled{opacity:.5}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}td,th{padding:12px;text-align:right;border-bottom:1px solid #e0e7ef;white-space:nowrap}td:first-child,th:first-child{text-align:left}.scroll{overflow:auto}.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:13px}.legend span::before{content:"";display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--color);margin-right:6px}#chart svg{display:block}#chart-detail{min-height:70px;background:#f3f7fb;padding:14px;border-radius:8px}#chart svg text{font-family:system-ui,sans-serif}#opening-reference{display:flex;justify-content:center;gap:32px;flex-wrap:wrap;text-align:center;background:#f3f7fb;border-radius:10px;padding:18px;margin:18px 0}#opening-reference strong{display:block;font-size:23px;margin:6px 0;color:#18324f}#opening-reference small{display:block;color:#50647b}#status{white-space:pre-wrap}a{color:#245da8}
+.transaction-totals{display:flex;flex-wrap:wrap;gap:16px 32px}.transaction-totals strong{display:block;font-size:18px;color:#edf2f7}.transaction-report table{font-size:13px;table-layout:fixed;min-width:1000px}.transaction-report th,.transaction-report td{white-space:normal;padding:12px 8px}.transaction-report td:nth-child(2),.transaction-report td:nth-child(3),.transaction-report td:last-child{text-align:left}.transaction-report tfoot th{text-align:right}
+.transaction-report tfoot td:nth-child(n){text-align:right}.transaction-report tfoot strong{display:block;font-size:13px;text-align:right}
+#close-today-summary{border:1px solid #396254;background:#12231e;border-radius:10px;padding:18px;margin:16px 0}#close-today-summary h3{margin:0 0 10px}#close-today-summary>p{margin:0}#close-today-summary>p>strong{display:block;font-size:30px;margin:6px 0 16px}.close-today-breakdown{display:flex;flex-wrap:wrap;gap:12px 28px}.close-today-breakdown p{margin:0 0 14px}.close-today-breakdown strong{display:block;color:#edf2f7}.gain{color:#78d5ad}.loss{color:#f18b93}#close-today-summary small{color:#bcc7d4;font-size:12px}
 .signin-page{max-width:460px;padding:10vh 20px 30px}.signin-card{padding:30px}.signin-brand{font-weight:700;letter-spacing:.06em;color:#91c5ff}.signin-card h1{font-size:30px;margin:12px 0}.signin-card form>label{display:flex;margin:20px 0;gap:10px}.signin-card input{min-width:0}.signin-card form>button{width:100%;padding:13px}.signin-card .remember-device{flex-direction:row;align-items:center;font-size:14px}.remember-device input{width:18px;height:18px;flex-shrink:0}.signin-card .muted{font-size:12px}.signin-back{background:transparent;font-size:13px}.account-bar{max-width:1440px;margin:auto;padding:12px 28px;display:flex;align-items:center;justify-content:flex-end;gap:14px;color:#bcc7d4;font-size:13px}.account-bar button{padding:6px 12px}.account-bar span{overflow-wrap:anywhere}
 /* Dark appearance for the optimizer and its SVG chart. */
 body{background:#000;color:#edf2f7}
@@ -17,11 +20,29 @@ a{color:#91c5ff}
 #chart svg text[fill="#ac3b43"]{fill:#ff929a}
 #chart svg text[fill="#26856c"]{fill:#73d3ad}
 summary{cursor:pointer}
-.holding-controls{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
+.holding-controls{display:block}
 .holding-controls label{margin:0;gap:6px}
 .holding-controls select,.holding-controls button{box-sizing:border-box;min-height:40px;margin:0}
 .holding-controls button{white-space:nowrap}
-#status{margin:20px 0 0}
+.holding-picker{display:block;margin-bottom:20px}
+.holding-picker label{font-size:13px;color:#c6cfda;max-width:100%}
+.holding-picker select{min-width:510px;max-width:100%;margin-top:2px}
+.action-groups{display:grid;grid-template-columns:minmax(370px,.85fr) minmax(0,1.65fr);gap:16px}
+.action-group{border:1px solid #343b45;border-radius:10px;padding:15px 16px 17px;min-width:0}
+.action-group h2{font-size:12px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;margin:0 0 13px}
+.action-group.optimize{background:#111e2d;border-color:#2c4d72}
+.action-group.optimize h2{color:#9ec9ff}
+.action-group.records{background:#151515;border-color:#343434}
+.action-group.records h2{color:#aeb9c8}
+.action-buttons{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.action-buttons button{font-size:13px;padding:10px 12px;min-height:40px}
+.optimize .action-buttons button{font-size:14px}
+.optimize .action-buttons button:last-child{background:#1d3551;border-color:#4c729a;color:#c6e0ff}
+.records .action-buttons button{background:#1b1b1b;color:#cfd8e3;border-color:#545454}
+.records .action-buttons button.danger{background:transparent;color:#f099a4;border-color:#74454b;margin-left:auto}
+.records .action-buttons button:disabled{color:#8e969e;opacity:.55}
+#status{margin:15px 0 0;color:#9aa9ba}
+@media(max-width:1100px){.action-groups{grid-template-columns:minmax(0,1fr)}.holding-picker label{width:100%}.holding-picker select{min-width:0;width:100%}.records .action-buttons button.danger{margin-left:0}}
 
 main{max-width:1440px;padding:22px 28px}
 .optimizer-header{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:18px}
@@ -45,8 +66,22 @@ section{margin:14px 0;padding:18px}h2{font-size:19px;margin:0 0 14px}h2 small{fo
 .roll-toggle input{margin:0;padding:0;width:14px;height:14px;accent-color:#91c5ff}
 .exit-mode-note{font-size:12px;color:#b7c7d9;text-align:center;margin:10px 0}
 .profile-menu{position:relative;flex-shrink:0}.profile-dropdown{display:none;position:absolute;right:0;top:100%;z-index:30;min-width:170px;padding:8px;background:#181818;border:1px solid #555;border-radius:8px}.profile-dropdown button{width:100%;text-align:left}.profile-menu.open .profile-dropdown,.profile-menu:focus-within .profile-dropdown{display:block}
-#profile-settings{background:#101010;color:#edf2f7;border:1px solid #555;border-radius:14px;width:min(1160px,95vw);max-height:88vh;padding:22px}
-#profile-settings::backdrop{background:#000b}.settings-header{display:flex;align-items:center;justify-content:space-between;gap:20px}.settings-header h2{margin:0}.settings-header button{font-size:20px;padding:5px 12px}
-#profile-settings .fields{display:flex;gap:14px;flex-wrap:wrap}#profile-settings .fields input{max-width:220px}#profile-settings td input{max-width:170px;width:100%}#profile-settings td{white-space:normal}#profile-settings .table-scroll{overflow:auto}#profile-settings .entry-actions{display:flex;gap:12px;margin:18px 0}#profile-settings p{font-size:13px}#profile-settings input[type=checkbox]{width:auto}
+:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding){background:#101010;color:#edf2f7;border:1px solid #555;border-radius:14px;width:min(1160px,95vw);max-height:88vh;padding:22px}
+:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding)::backdrop{background:#000b}.settings-header{display:flex;align-items:center;justify-content:space-between;gap:20px}.settings-header h2{margin:0}.settings-header button{font-size:20px;padding:5px 12px}
+:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .fields{display:flex;gap:14px;flex-wrap:wrap}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .fields input{max-width:220px}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) td input{max-width:170px;width:100%}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) td{white-space:normal}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .table-scroll{overflow:auto}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .entry-actions{display:flex;gap:12px;margin:18px 0}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) p{font-size:13px}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) input[type=checkbox]{width:auto}
 
-.prose{white-space:pre-wrap;font:inherit;line-height:1.65;overflow-wrap:anywhere}.center{text-align:center}.funding-note{font-size:12px}.review{flex-direction:row;align-items:center}.review input{width:auto}.slider-track{position:relative;margin:22px 12px 55px}.slider-track input{width:100%;padding:0;margin:0;display:block;accent-color:#82b8ff}.quote-marker{position:absolute;left:50%;top:-8px;height:32px;width:2px;background:#f5ca6b;pointer-events:none}.quote-marker span{position:absolute;top:36px;left:0;transform:translateX(-50%);white-space:nowrap;font-size:12px;color:#f5ca6b}#stock-scenario{background:#191919;border:1px solid #444;border-radius:10px}.home{max-width:620px;margin:10vh auto;padding:40px;background:#101010;border:1px solid #343434;border-radius:16px}.primary-link{display:inline-block;padding:12px 20px;border:1px solid #6992c5;border-radius:8px;background:#2c66ac;color:#fff;text-decoration:none}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #f5ca6b;outline-offset:3px}#profile-settings td input{box-sizing:border-box;min-width:110px}#chart svg{max-width:none}.profile-dropdown{display:block} [hidden]{display:none!important}
+.prose{white-space:pre-wrap;font:inherit;line-height:1.65;overflow-wrap:anywhere}.center{text-align:center}.funding-note{font-size:12px}.review{flex-direction:row;align-items:center}.review input{width:auto}.slider-track{position:relative;margin:22px 12px 55px}.slider-track input{width:100%;padding:0;margin:0;display:block;accent-color:#82b8ff}.quote-marker{position:absolute;left:50%;top:-8px;height:32px;width:2px;background:#f5ca6b;pointer-events:none}.quote-marker span{position:absolute;top:36px;left:0;transform:translateX(-50%);white-space:nowrap;font-size:12px;color:#f5ca6b}#stock-scenario{background:#191919;border:1px solid #444;border-radius:10px}.home{max-width:620px;margin:10vh auto;padding:40px;background:#101010;border:1px solid #343434;border-radius:16px}.primary-link{display:inline-block;padding:12px 20px;border:1px solid #6992c5;border-radius:8px;background:#2c66ac;color:#fff;text-decoration:none}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #f5ca6b;outline-offset:3px}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) td input{box-sizing:border-box;min-width:110px}#chart svg{max-width:none}.profile-dropdown{display:block} [hidden]{display:none!important}
+
+:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .purchase-controls{display:flex;align-items:flex-end;flex-wrap:wrap;gap:16px;margin:16px 0}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .purchase-controls label{margin:0}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .purchase-controls button,:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .purchase-controls select{box-sizing:border-box;min-height:42px;margin:0}
+
+:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .settings-tabs{display:flex;gap:8px;border-bottom:1px solid #444;margin:20px 0;padding-bottom:10px}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .settings-tabs [aria-selected="false"]{background:transparent;color:#bcc7d4;border-color:#555}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .settings-tabs [aria-selected="true"]{background:#2c66ac;color:white}:is(#profile-settings,#transaction-records,#close-position,#expire-option,#new-holding,#delete-holding) .option-sale-form{margin:0;padding:0;border:0;background:transparent}
+
+#profile-settings{width:min(420px,90vw)}
+
+#stock-scenario .scenario-header{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:12px}#stock-scenario .scenario-header button{grid-column:2;justify-self:center;margin:0}@media(max-width:700px){#stock-scenario .scenario-header strong{grid-column:1 / -1}#stock-scenario .scenario-header button{grid-row:2}}
+
+#close-position{width:min(740px,92vw)}#closed-holdings-report td details{max-width:300px;white-space:normal;text-align:left}#closed-holdings-report small{color:#bcc7d4}
+
+#expire-option{width:min(740px,92vw)}
+
+#new-holding,#delete-holding{width:min(740px,92vw)}button.danger{background:#a43e4a;border-color:#c8757e}

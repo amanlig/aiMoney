@@ -5,7 +5,7 @@ export function Recommendations({holding, analysis, price, modes, pending}) {
   const [goal, setGoal] = useState('keep_exposure'), [status, setStatus] = useState('');
   const [assessment, setAssessment] = useState(''), [busy, setBusy] = useState(false);
   const [history, setHistory] = useState([]), [historyError, setHistoryError] = useState('');
-  const snapshot = JSON.stringify({account: holding?.account, symbol: holding?.symbol, captured_at: analysis?.inputs.captured_at, stock_price: price, goal, modes});
+  const snapshot = JSON.stringify({account: holding?.account, symbol: holding?.symbol, ...(holding?.position_id ? {position_id: holding.position_id} : {}), captured_at: analysis?.inputs.captured_at, stock_price: price, goal, modes});
   const latest = useRef(snapshot), running = useRef(false), mounted = useRef(true);
   latest.current = snapshot;
   useEffect(() => {mounted.current = true; api('/api/optimizer-recommendations/status').then(d => {

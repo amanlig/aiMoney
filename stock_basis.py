@@ -64,6 +64,16 @@ def save_many(items,path=DB,insert_only=False):
     values=[validate(item) for item in items]
     if len({(v['account'],v['symbol'],v['currency']) for v in values})!=len(values):raise ValueError('Duplicate holdings in cost-basis request.')
     with connect(path) as db:
+        if db.postgres: db.execute('SELECT pg_advisory_xact_lock(72498129)')
+        else: db.execute('BEGIN IMMEDIATE')
+        if db.table_exists('covered_positions'):
+            for v in values:
+                effective=v['currency']=='USD' or not db.execute("SELECT id FROM stock_cost_basis WHERE account=? AND symbol=? AND currency='USD'",(v['account'],v['symbol'])).fetchone()
+                query='SELECT COALESCE(SUM(shares),0) AS n FROM covered_positions WHERE account=? AND symbol=?'
+                if db.table_exists('option_expirations'): query+=' AND id NOT IN (SELECT id FROM option_expirations)'
+                allocated=db.execute(query,(v['account'],v['symbol'])).fetchone()['n']
+                if effective and v['quantity']<allocated:
+                    raise ValueError('Purchase shares cannot be less than shares already allocated to positions. Adjust allocations first.')
         for v in values:
             sql='''INSERT INTO stock_cost_basis (account,symbol,currency,purchase_date,quantity,price_usd,fees_usd,purchase_fx,total_cost,updated_at)
               VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(account,symbol,currency) '''

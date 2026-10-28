@@ -5,3 +5,6 @@ httpx==0.28.1
 playwright==1.64.0
 greenlet==3.5.6
 pyee==14.0.0
+httpx2==2.16.0
+httpcore2==2.16.0
+truststore==0.10.5

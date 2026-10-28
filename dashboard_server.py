@@ -22,6 +22,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import fx_samples
 import option_premiums
+import option_rollovers
+import closed_holdings
+import covered_positions
+import holding_records
+import transaction_report
 import stock_basis
 import exit_optimizer
 import optimizer_recommendations
@@ -77,6 +82,7 @@ class PositionRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     account: Literal['LIRA', 'RRSP', 'TFSA']
     symbol: str = Field(min_length=1, max_length=16, pattern=r'^[A-Z0-9.\-]+$')
+    position_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{32,64}$')
 
 
 class SignInRequest(BaseModel):
@@ -313,10 +319,9 @@ def create_app(*, refresh_macro=True, auth_enabled=None, auth_service=None):
 
     @app.get('/api/exit-optimizer/capture')
     def capture(position: Annotated[PositionRequest, Depends()]):
-        path = ROOT/'reports'/f'exit-optimizer-{position.account.lower()}-{position.symbol.lower()}.json'
-        if not path.is_file():
-            raise HTTPException(404, 'No saved analysis for this holding.')
-        return json.loads(path.read_text())
+        saved=exit_optimizer.load_capture(position.model_dump(exclude_none=True),root=ROOT)
+        if saved is None: raise HTTPException(404, 'No saved analysis for this position.')
+        return saved
 
     @app.post('/api/exit-optimizer/run')
     def run(body: RunRequest):
@@ -329,11 +334,15 @@ def create_app(*, refresh_macro=True, auth_enabled=None, auth_service=None):
     def evaluate(body, operation):
         with serialized(ROLL_REFRESH_LOCK, 'A market-data refresh is already running.'):
             try:
-                return operation(body.model_dump())
+                return operation(body.model_dump(exclude_none=True))
+            except exit_optimizer.BrokerNotConfigured as error:
+                raise HTTPException(503,str(error)) from None
+            except exit_optimizer.StockHistoryUnavailable as error:
+                raise HTTPException(502,str(error)) from None
             except (ValueError, TypeError):
                 raise
             except Exception:
-                raise HTTPException(502, 'Market data unavailable; check Questrade authorization and market-data access. Previous results retained.') from None
+                raise HTTPException(502, 'Market data is unavailable. Try again or check the data-provider configuration.') from None
 
     @app.get('/api/optimizer-recommendations/status')
     def recommendation_status():
@@ -347,7 +356,7 @@ def create_app(*, refresh_macro=True, auth_enabled=None, auth_service=None):
     def recommendation(body: RecommendationRequest):
         with serialized(ASSESSMENT_LOCK, 'A recommendation is already running.'):
             try:
-                return optimizer_recommendations.generate(body.model_dump())
+                return optimizer_recommendations.generate(body.model_dump(exclude_none=True))
             except (ValueError, TypeError):
                 raise
             except optimizer_assessments.AssessmentError as error:
@@ -371,13 +380,115 @@ def create_app(*, refresh_macro=True, auth_enabled=None, auth_service=None):
     def save_premium(body: dict):
         return option_premiums.save(body)
 
+    @app.post('/api/option-premiums/{record_id:int}/edit')
+    def edit_premium(record_id: int, body: dict):
+        return option_premiums.save(body, record_id=record_id)
+
     @app.get('/api/option-premiums/usd')
     def usd_premiums():
         return {'premiums': option_premiums.usd_records()}
 
+    @app.post('/api/option-premiums/usd/{record_id:int}/edit')
+    def edit_usd_premium(record_id: int, body: dict):
+        return option_premiums.save_usd(body, record_id=record_id)
+
     @app.post('/api/option-premiums/usd', status_code=201)
     def save_usd_premium(body: dict):
         return option_premiums.save_usd(body)
+
+    @app.get('/api/positions/availability')
+    def position_availability():
+        exit_optimizer.holdings(include_closed=True)
+        return {'stocks': covered_positions.availability(exit_optimizer.inventory())}
+
+    @app.post('/api/positions', status_code=201)
+    def create_position(body: dict):
+        existing=exit_optimizer.holdings(include_closed=True)
+        template=next((h for h in existing if h['account']==body.get('account') and h['symbol']==body.get('symbol')),None)
+        return covered_positions.create(body,exit_optimizer.inventory(),template)
+
+    @app.post('/api/holdings',status_code=201)
+    def new_stock_holding(body:dict):
+        exit_optimizer.holdings(include_closed=True)
+        return holding_records.create(body)
+
+    @app.post('/api/positions/{position_id}/purchase')
+    def update_holding_purchase(position_id:str,body:dict):
+        return holding_records.update_purchase(position_id,body)
+
+    @app.get('/api/positions/{position_id}/delete-preview')
+    def holding_delete_preview(position_id:str):
+        return holding_records.preview(position_id)
+
+    @app.post('/api/positions/{position_id}/delete')
+    def delete_holding(position_id:str,body:dict):
+        with serialized(ROLL_REFRESH_LOCK,'Wait for the quote refresh to finish before deleting.'), serialized(ASSESSMENT_LOCK,'Wait for the recommendation to finish before deleting.'):
+            return holding_records.delete(position_id,body,reports=ROOT/'reports')
+
+    @app.post('/api/positions/{position_id}/allocation')
+    def allocate_position(position_id: str,body: dict):
+        return covered_positions.allocate(position_id,body.get('shares'),exit_optimizer.inventory())
+
+    @app.get('/api/positions/{position_id}/history')
+    def position_history_records(position_id: str):
+        return covered_positions.history(position_id)
+
+    @app.get('/api/positions/{position_id}/transactions')
+    def position_transaction_report(position_id: str):
+        return transaction_report.report(position_id)
+
+    @app.post('/api/positions/{position_id}/opening', status_code=201)
+    def create_position_opening(position_id: str,body: dict):
+        return covered_positions.save_opening(position_id,body)
+
+    @app.post('/api/positions/{position_id}/opening/edit')
+    def edit_position_opening(position_id: str,body: dict):
+        return covered_positions.save_opening(position_id,body,edit=True)
+
+    @app.post('/api/positions/{position_id}/rollovers', status_code=201)
+    def record_position_rollover(position_id: str,body: dict):
+        return covered_positions.save_rollover(position_id,body)
+
+    @app.get('/api/positions/{position_id}/expiration-preview')
+    def expiration_preview(position_id: str):
+        return covered_positions.expiration_preview(position_id)
+
+    @app.post('/api/positions/{position_id}/expire-worthless', status_code=201)
+    def expire_option_worthless(position_id: str,body: dict):
+        return covered_positions.expire_worthless(position_id,body,retain_stock=True,raw=exit_optimizer.source_holdings())
+
+    @app.get('/api/option-expirations')
+    def option_expirations():
+        return {'expirations':covered_positions.expirations()}
+
+    @app.get('/api/closed-holdings')
+    def closed_positions():
+        return {'holdings': closed_holdings.records()}
+
+    @app.post('/api/closed-holdings', status_code=201)
+    def close_position(body: dict):
+        # Seed legacy positions before taking the mutation lock.
+        exit_optimizer.holdings(include_closed=True)
+        with covered_positions.transaction() as db:
+            row=covered_positions.get(db,body.get('position_key'),active=False)
+            if covered_positions.is_expired(db,row['id']):
+                raise ValueError('This call has expired worthless; its shares remain held.')
+            holding=covered_positions.holding(row)
+            try:
+                reference=exit_optimizer.opening_reference(holding['account'],holding['symbol'],
+                    dict(expiry=holding['call_expiry'],strike=holding['call_strike_native_currency']),
+                    holding['shares'],holding['call_contracts'],holding['position_id'],transaction=db)
+            except ValueError:
+                reference=dict(history_status='incomplete',history_note='Stock purchase or linked option history is unavailable; realized P/L cannot be calculated.',historical_option_net_usd=None,stock_cost_usd=None)
+            return closed_holdings.save(body,holding,reference,transaction=db)
+
+    @app.get('/api/option-rollovers')
+    def rollovers():
+        return {'rollovers': option_rollovers.records()}
+
+    @app.post('/api/option-rollovers', status_code=201)
+    def save_rollover(body: dict):
+        return option_rollovers.save(body)
 
     @app.get('/api/fx-samples')
     def samples():

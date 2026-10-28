@@ -11,14 +11,10 @@ GOALS = {'keep_exposure': 'Prefer retaining stock; release cash if downside risk
 def snapshot(request):
     if not isinstance(request, dict) or request.get('goal') not in GOALS:
         raise ValueError('Select a recommendation goal.')
-    matches = [p for p in optimizer.holdings() if p['account'] == request.get('account') and p['symbol'] == request.get('symbol')]
-    if len(matches) != 1:
-        raise ValueError('Choose a saved covered-call holding.')
-    h = matches[0]
-    path = optimizer.ROOT/'reports'/f"exit-optimizer-{h['account'].lower()}-{h['symbol'].lower()}.json"
-    if not path.exists():
-        raise ValueError('Refresh data & analyze first.')
-    original = json.loads(path.read_text())['inputs']
+    h=optimizer.select_holding(request)
+    saved=optimizer.load_capture(request)
+    if saved is None: raise ValueError('Refresh data & analyze this position first.')
+    original=saved['inputs']
     if request.get('captured_at') != original['captured_at']:
         raise ValueError('Quotes changed. Reload the analysis before requesting a recommendation.')
     inputs = optimizer.model.stock_price_scenario(original, request.get('stock_price'))
@@ -29,11 +25,11 @@ def snapshot(request):
         raise ValueError('Invalid rollover exit choices.')
     rolls = []
     for row in analysis['top_choices'][:3]:
-        key = f"{h['account']}|{h['symbol']}|{row['expiry']}|{row['strike']:g}"
+        key = f"{h['account']}|{h['symbol']}|"+(h.get('position_id')+'|' if h.get('position_id') else '')+f"{row['expiry']}|{row['strike']:g}"
         rolls.append(row['expire_worthless'] if modes.get(key) == 'expire' else row)
-    return dict(created_at=datetime.now(timezone.utc).isoformat(), currency='USD', fees=0,
+    return dict(created_at=datetime.now(timezone.utc).isoformat(), currency='USD', future_fees=0,
                 goal=GOALS[request['goal']], captured_at=original['captured_at'],
-                position={k:original[k] for k in ('account','symbol','shares','contracts','held')},
+                position={k:original[k] for k in ('account','symbol','shares','contracts','held','position_id') if k in original},
                 opening_reference=original.get('opening_reference'), sources=original.get('sources'),
                 captured_stock=original['stock'], hypothetical_stock_price=request['stock_price'],
                 close_today=next(r for r in baseline['rows'] if r['strategy']=='Close now'),

@@ -15,6 +15,32 @@ class USDPremiumTests(unittest.TestCase):
         self.assertEqual(row['gross_usd'],21260)
         self.assertEqual(len(premiums.usd_records(self.path)),1)
         with self.assertRaisesRegex(ValueError,'already recorded'):premiums.save_usd(self.data,self.path)
+    def test_edit_corrects_total_without_adding_sale(self):
+        row=premiums.save_usd(dict(self.data,price_usd=29825),self.path)
+        updated=premiums.save_usd(dict(self.data,price_usd=29.825),self.path,record_id=row['id'])
+        self.assertEqual(updated['gross_usd'],14912.5)
+        self.assertEqual(updated['id'],row['id'])
+        self.assertEqual(updated['created_at'],row['created_at'])
+        self.assertEqual(len(premiums.usd_records(self.path)),1)
+        with self.assertRaises(ValueError):
+            premiums.save_usd(dict(self.data,reviewed=False),self.path,record_id=row['id'])
+        with self.assertRaisesRegex(ValueError,'not found'):
+            premiums.save_usd(dict(self.data,settlement_date='2025-10-07'),self.path,record_id=999)
+        other=premiums.save_usd(dict(self.data,settlement_date='2025-10-07'),self.path)
+        with self.assertRaisesRegex(ValueError,'already recorded'):
+            premiums.save_usd(dict(self.data,settlement_date='2025-10-07'),self.path,record_id=row['id'])
+        self.assertEqual(premiums.usd_records(self.path)[1]['price_usd'],29.825)
+
+    def test_edit_converted_reconciles_and_preserves_record(self):
+        data=dict(self.data,fees_usd=0,fx=1.4,net_cad=29764)
+        row=premiums.save(data,self.path)
+        with self.assertRaisesRegex(ValueError,'reconcile'):
+            premiums.save(dict(data,price_usd=40),self.path,record_id=row['id'])
+        updated=premiums.save(dict(data,price_usd=40,net_cad=28000),self.path,record_id=row['id'])
+        self.assertEqual(updated['net_usd'],20000)
+        self.assertEqual(updated['created_at'],row['created_at'])
+        self.assertEqual(len(premiums.records(self.path)),1)
+
     def test_review_and_numbers_required(self):
         for patch in [dict(reviewed=False),dict(contracts=1.5),dict(price_usd=float('nan')),dict(strike=-1),dict(settlement_date='2099-01-01')]:
             with self.subTest(patch=patch):
