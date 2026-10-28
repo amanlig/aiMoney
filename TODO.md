@@ -1,9 +1,41 @@
 # Next to do
 
-## Resume next — comparable Close versus Expire P/L
+## Future work — user-controlled rollover criteria and pricing assumptions
 
-Paused at user request on October 27 evening (Vancouver); continue when they resume.
-Current cloud release: net-pnl-chart-20261027-cc39240e0293. No deployment pending.
+Requested October 28, 2026 (Vancouver), at session wrap-up. Planning only;
+implement when the user resumes and selects the next change.
+
+1. **Dynamic strike-price range:** let users change the minimum and maximum
+   replacement strikes used for selection, instead of the current fixed
+   purchase-price/stock-midpoint criteria. Make the active criteria explicit.
+2. **Dynamic expiry-date range:** let users choose the earliest and latest
+   replacement expirations used for selection. Validate date order and use
+   listed, unexpired contracts within the chosen range.
+3. **Editable implied volatility:** allow an explicit IV scenario override for
+   option pricing, with clear annual-percent units, the captured/calibrated
+   reference and reset. Decide whether the control applies to the held call,
+   replacement calls or both; historical-return stock paths remain a separate
+   input. Scenario changes must not overwrite saved market quotes.
+4. **U.S. Treasury yield for interest rates:** replace the fixed 4% assumption
+   with published USD Treasury yields matched/interpolated to remaining option
+   maturity and converted to the continuously compounded rate required by
+   Black–Scholes. Show source, observation date and rate; define stale/missing-data
+   behavior and a consistent discounting policy for the comparison horizon.
+   Source: https://home.treasury.gov/resource-center/data-chart-center/interest-rates
+
+Apply selected criteria and pricing assumptions consistently to simulations,
+rankings and the full CSV download. Show assumptions and quote/rate dates in
+exports; fetching a wider contract range may require an explicit data refresh.
+No implementation or cloud deployment is authorized by this backlog entry alone.
+
+Latest cloud release: rollover-csv-20261028-d6fa208028aa. No deployment pending.
+Latest session handoff: status/handoff-2026-10-28.md.
+
+## Outstanding — comparable Close versus Expire P/L
+
+Carried forward from October 27. On October 28 the user accepted exploring an
+editable stock-price-at-replacement-expiry scenario. That valuation control and
+comparable full-position Expire result remain unimplemented.
 
 Main dashboard now emphasizes total close-today profit and draws a single net P/L
 bar. Remaining issue: rollover Expire still displays option-only cash/P/L while

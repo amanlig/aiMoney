@@ -1,0 +1,351 @@
+{
+  "sample_notice": "Entirely fictional inputs; no real ticker, trades, quotes or account data.",
+  "symbol": "DEMO",
+  "account": "SYNTHETIC",
+  "as_of": "2026-10-28",
+  "captured_at": "2026-10-28T16:00:00+00:00",
+  "initial_purchase_price_usd": 30,
+  "shares": 100,
+  "contracts": 1,
+  "stock": {
+    "bidPrice": 49.95,
+    "askPrice": 50.05,
+    "delay": 0,
+    "isHalted": false
+  },
+  "held": {
+    "strike": 40,
+    "expiry": "2027-01-15",
+    "bidPrice": 11.9497,
+    "askPrice": 12.1497,
+    "bidSize": 20,
+    "askSize": 20,
+    "delay": 0,
+    "isHalted": false,
+    "validated": true
+  },
+  "history": [
+    {
+      "date": "2026-07-30",
+      "close": 47.567398
+    },
+    {
+      "date": "2026-07-31",
+      "close": 47.758048
+    },
+    {
+      "date": "2026-08-03",
+      "close": 49.707091
+    },
+    {
+      "date": "2026-08-04",
+      "close": 49.311021
+    },
+    {
+      "date": "2026-08-05",
+      "close": 48.918106
+    },
+    {
+      "date": "2026-08-06",
+      "close": 48.528323
+    },
+    {
+      "date": "2026-08-07",
+      "close": 47.662628
+    },
+    {
+      "date": "2026-08-10",
+      "close": 49.607776
+    },
+    {
+      "date": "2026-08-11",
+      "close": 50.711241
+    },
+    {
+      "date": "2026-08-12",
+      "close": 51.839251
+    },
+    {
+      "date": "2026-08-13",
+      "close": 52.465069
+    },
+    {
+      "date": "2026-08-14",
+      "close": 53.632091
+    },
+    {
+      "date": "2026-08-17",
+      "close": 53.204746
+    },
+    {
+      "date": "2026-08-18",
+      "close": 51.374791
+    },
+    {
+      "date": "2026-08-19",
+      "close": 49.607776
+    },
+    {
+      "date": "2026-08-20",
+      "close": 48.722825
+    },
+    {
+      "date": "2026-08-21",
+      "close": 48.918106
+    },
+    {
+      "date": "2026-08-24",
+      "close": 50.914492
+    },
+    {
+      "date": "2026-08-25",
+      "close": 52.047023
+    },
+    {
+      "date": "2026-08-26",
+      "close": 52.255628
+    },
+    {
+      "date": "2026-08-27",
+      "close": 51.839251
+    },
+    {
+      "date": "2026-08-28",
+      "close": 53.954851
+    },
+    {
+      "date": "2026-08-31",
+      "close": 54.606209
+    },
+    {
+      "date": "2026-09-01",
+      "close": 56.834731
+    },
+    {
+      "date": "2026-09-02",
+      "close": 56.381867
+    },
+    {
+      "date": "2026-09-03",
+      "close": 57.636013
+    },
+    {
+      "date": "2026-09-04",
+      "close": 59.988184
+    },
+    {
+      "date": "2026-09-07",
+      "close": 61.322548
+    },
+    {
+      "date": "2026-09-08",
+      "close": 62.686593
+    },
+    {
+      "date": "2026-09-09",
+      "close": 62.937842
+    },
+    {
+      "date": "2026-09-10",
+      "close": 61.815096
+    },
+    {
+      "date": "2026-09-11",
+      "close": 62.561345
+    },
+    {
+      "date": "2026-09-14",
+      "close": 60.409574
+    },
+    {
+      "date": "2026-09-15",
+      "close": 59.33193
+    },
+    {
+      "date": "2026-09-16",
+      "close": 61.753312
+    },
+    {
+      "date": "2026-09-17",
+      "close": 64.273512
+    },
+    {
+      "date": "2026-09-18",
+      "close": 63.126939
+    },
+    {
+      "date": "2026-09-21",
+      "close": 62.000819
+    },
+    {
+      "date": "2026-09-22",
+      "close": 63.379952
+    },
+    {
+      "date": "2026-09-23",
+      "close": 64.145093
+    },
+    {
+      "date": "2026-09-24",
+      "close": 64.919471
+    },
+    {
+      "date": "2026-09-25",
+      "close": 67.568885
+    },
+    {
+      "date": "2026-09-28",
+      "close": 69.071873
+    },
+    {
+      "date": "2026-09-29",
+      "close": 67.839702
+    },
+    {
+      "date": "2026-09-30",
+      "close": 67.29915
+    },
+    {
+      "date": "2026-10-01",
+      "close": 68.111604
+    },
+    {
+      "date": "2026-10-02",
+      "close": 65.768934
+    },
+    {
+      "date": "2026-10-05",
+      "close": 67.231884
+    },
+    {
+      "date": "2026-10-06",
+      "close": 68.727376
+    },
+    {
+      "date": "2026-10-07",
+      "close": 66.363526
+    },
+    {
+      "date": "2026-10-08",
+      "close": 65.834736
+    },
+    {
+      "date": "2026-10-09",
+      "close": 66.098602
+    },
+    {
+      "date": "2026-10-12",
+      "close": 63.825168
+    },
+    {
+      "date": "2026-10-13",
+      "close": 64.595684
+    },
+    {
+      "date": "2026-10-14",
+      "close": 67.231884
+    },
+    {
+      "date": "2026-10-15",
+      "close": 67.50135
+    },
+    {
+      "date": "2026-10-16",
+      "close": 69.002836
+    },
+    {
+      "date": "2026-10-19",
+      "close": 69.835858
+    },
+    {
+      "date": "2026-10-20",
+      "close": 68.590058
+    },
+    {
+      "date": "2026-10-21",
+      "close": 70.115761
+    },
+    {
+      "date": "2026-10-22",
+      "close": 72.977239
+    },
+    {
+      "date": "2026-10-23",
+      "close": 73.269733
+    },
+    {
+      "date": "2026-10-26",
+      "close": 76.259927
+    },
+    {
+      "date": "2026-10-27",
+      "close": 77.180559
+    }
+  ],
+  "candidates": [
+    {
+      "strike": 52,
+      "expiry": "2026-11-20",
+      "bidPrice": 2.3605,
+      "askPrice": 2.5605,
+      "bidSize": 20,
+      "askSize": 20,
+      "delay": 0,
+      "isHalted": false,
+      "validated": true
+    },
+    {
+      "strike": 55,
+      "expiry": "2026-12-18",
+      "bidPrice": 2.9541,
+      "askPrice": 3.1541,
+      "bidSize": 20,
+      "askSize": 20,
+      "delay": 0,
+      "isHalted": false,
+      "validated": true
+    },
+    {
+      "strike": 60,
+      "expiry": "2027-03-19",
+      "bidPrice": 4.8428,
+      "askPrice": 5.0428,
+      "bidSize": 20,
+      "askSize": 20,
+      "delay": 0,
+      "isHalted": false,
+      "validated": true
+    },
+    {
+      "strike": 49,
+      "expiry": "2026-12-18",
+      "bidPrice": 5.3364,
+      "askPrice": 5.5364,
+      "bidSize": 20,
+      "askSize": 20,
+      "delay": 0,
+      "isHalted": false,
+      "validated": true
+    },
+    {
+      "strike": 55,
+      "expiry": "2027-01-15",
+      "bidPrice": 4.1721,
+      "askPrice": 4.3721,
+      "bidSize": 20,
+      "askSize": 20,
+      "delay": 15,
+      "isHalted": false,
+      "validated": true
+    }
+  ],
+  "opening_reference": {
+    "stock_total_usd": 3000,
+    "stock_cost_usd": 3005,
+    "stock_fees_usd": 5,
+    "historical_option_net_usd": 700,
+    "prior_realized_option_usd": 100,
+    "active_realized_option_usd": 200,
+    "history_status": "complete"
+  }
+}

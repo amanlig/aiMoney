@@ -142,3 +142,11 @@ App.js emphasizes an If you close today summary with captured net P/L and its
 stock sale − call buyback + accumulated option cash − stock cost reconciliation.
 Scenario slider changes retain that captured closing reference. All changes are
 presentation only; underlying accounting and strategy ranking remain unchanged.
+
+The Optimization group includes **Download all rollovers (CSV)**. It downloads all
+filtered rollover rows for the displayed stock-price scenario, sorted by estimated
+whole-position profit descending (unknown profits last and blank). The UTF-8 CSV
+includes saved quote time, criteria, funding, probability and sale-floor flags;
+worthless-expiry cash is explicitly option-only. No market refresh is triggered.
+The button is disabled without matching results or while analysis is updating.
+Run `node tests/test_rollover_export.mjs` for isolated CSV checks.

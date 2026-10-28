@@ -1,5 +1,34 @@
 # Covered-call exit scenario model
 
+## Hugging Face package
+
+The current consolidated explanation is in [MODEL_CARD.md](MODEL_CARD.md), including
+Black–Scholes equations, historical bootstrap, current criteria and synthetic data.
+The original narrative and version history below contain superseded rules.
+
+Prepare the standalone public package (no network or private data):
+
+```sh
+python3 models/financials/covered_call_exit/publish_huggingface.py
+```
+
+Publishing the chart requires the optional `huggingface_hub` upload library
+(`python3 -m pip install huggingface_hub`). Model evaluation remains standard-library only.
+
+Authenticate through a hidden terminal prompt, then publish to your personal
+Hugging Face namespace as `covered-call-exit-model`:
+
+```sh
+python3 models/financials/covered_call_exit/publish_huggingface.py --login
+python3 models/financials/covered_call_exit/publish_huggingface.py --upload
+```
+
+The explicit upload allowlist contains only model code, the model card, synthetic
+inputs/outputs, a runnable example, model tests and a checksum manifest. The
+publisher checks public visibility and verifies every uploaded file's checksum.
+It does not change an existing private repository's visibility. Login tokens and
+build outputs remain in ignored `.secrets/` and `artifacts/` directories.
+
 Independent, standard-library model; no broker, dashboard, credentials or OpenAI dependency. The investment app supplies validated market data through `coveredCallOptimizer/exit_optimizer.py`.
 
 Objective: rank the mean discounted USD liquidation wealth of closing now, closing after a specified number of trading days, or rolling now and liquidating the replacement covered call at the selected horizon. This is an experimental scenario model, not a trained or validated profit predictor. It does not claim to locate the best future exit day.

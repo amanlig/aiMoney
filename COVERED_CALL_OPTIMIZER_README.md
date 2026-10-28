@@ -214,7 +214,9 @@ results, with earlier realized and combined results shown in Accounting details.
    The valuation period is fixed at **30 trading days**, roughly six calendar weeks.
    The slider changes the hypothetical starting price, not the terminal stock price.
 6. Calibrate each option's IV to its captured midpoint. Estimate future calls using
-   a European call formula with constant IV and captured absolute half-spreads.
+   the [Black–Scholes European call formula](https://www.maths.dur.ac.uk/users/nicholas.georgiou/Teaching/2021-22/MF/the-blackscholes-formula.html#the-formula)
+   with constant IV and captured absolute half-spreads. The linked Durham University
+   notes explain the formula, its inputs and assumptions (section 5.4).
    Model expiration/assignment when the replacement expires before the exit date.
 7. Calculate rollover cash flows: buy back the held call and sell its replacement
    now; then sell retained stock and buy back the replacement after 30 trading days.

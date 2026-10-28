@@ -1,3 +1,4 @@
+import {downloadRollovers} from './RolloverExport.js';
 import {html, useState, useEffect, useRef} from './ui.js';
 import {api, midpoint, money, holdingLabel, readStored, holdingIdentity, positionRequest, captureQuery} from './api.js';
 import {Chart} from './Chart.js';
@@ -148,6 +149,7 @@ export function Dashboard() {
       <div className="action-groups">
         <div className="action-group optimize" role="group" aria-labelledby="optimization-actions-title"><h2 id="optimization-actions-title">Optimization</h2><div className="action-buttons">
           <button onClick=${refresh} disabled=${refreshBusy || !holding || holding.call_contracts===0 || holding.can_mark_expired}>Refresh data & analyze</button>
+          <button type="button" disabled=${!analysis || unsettled || !(analysis.result.rows || []).some(r => r.strategy==='Roll then close')} title="Download all matching rollovers for the displayed stock-price scenario, highest estimated whole-position profit first" onClick=${() => downloadRollovers(analysis, baseline)}>Download all rollovers (CSV)</button>
           <button type="button" disabled=${holding?.call_contracts===0 || holding?.can_mark_expired} aria-expanded=${recommendations} aria-controls="recommendation-panel" onClick=${() => setRecommendations(!recommendations)}>Recommendation</button>
         </div></div>
         <div className="action-group records" role="group" aria-labelledby="holding-actions-title"><h2 id="holding-actions-title">Holdings & records</h2><div className="action-buttons">

@@ -90,6 +90,25 @@ class ReactDashboardTests(unittest.TestCase):
         self.page.on('request', lambda request: self.requests.append(request.url))
         self.context.route('**/api/**', self.api)
 
+    def test_download_all_rollovers_csv(self):
+        import csv
+        data = capture()
+        for i, row in enumerate(data['result']['rows'][1:]):
+            row['strategy'] = 'Roll then close'
+            row['total_pl_usd'] = [10, 50, -20][i]
+        self.context.route('**/api/exit-optimizer/capture?*', lambda route: route.fulfill(json=data))
+        self.page.goto(self.base + '/covered-call-optimizer')
+        button = self.page.get_by_role('group', name='Optimization', exact=True).get_by_role('button', name='Download all rollovers (CSV)', exact=True)
+        with self.page.expect_download() as event:
+            button.click()
+        download = event.value
+        self.assertTrue(download.suggested_filename.endswith('.csv'))
+        with open(download.path(), encoding='utf-8-sig', newline='') as stream:
+            rows = list(csv.DictReader(stream))
+        self.assertEqual(len(rows), 3)
+        self.assertEqual([float(r['estimated_total_position_profit_usd']) for r in rows], [50, 10, -20])
+        self.assertEqual(self.posts, [])
+
     def tearDown(self):
         self.assertEqual(self.errors, [])
         self.assertTrue(all(url.startswith(self.base) for url in self.requests), 'Runtime must use local assets only.')

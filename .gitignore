@@ -67,3 +67,5 @@ __pycache__/
 !/tests/test_public_broker_setup.py
 !/compose.local-preview.yaml
 !/tests/test_public_holding_records.py
+
+!/tests/test_rollover_export.mjs

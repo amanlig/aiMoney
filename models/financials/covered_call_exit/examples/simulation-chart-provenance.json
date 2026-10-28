@@ -1,0 +1,18 @@
+{
+  "renderer": "Actual aiMoney frontend/src/Chart.js and styles.css via React/Playwright",
+  "sample_input_sha256": "8e6a20158d16d2d96fc278c3a44e8fbea14ce3f479c9c93e81f6d4772e1e902d",
+  "expected_result_sha256": "4d59e06cdfaddc73feac9cb738b2fad8a69f9661405a0344c082dbdd04b35957",
+  "chart_sha256": "fc52619e5498e39126d54964222092f837147f05c2d130eafe9771b1f21762e5",
+  "frontend_sha256": {
+    "src/Chart.js": "1a585d17a8ebbe195db1534ad2b0eca16d8adc4aee172eaebd7942aa880e45a7",
+    "src/styles.css": "a3815af9ad0fc001e0dafe5b555d79df951c35f7dd22c3b648f04773306a8cd9",
+    "src/ui.js": "cf68189aeacd34cb616cc7c129df13ce4d2ceb5e88b5f077617b4f58269a8dcc",
+    "src/api.js": "ce7b8d76e672ffb1225613602188af0027d08587bc69e5d5976f8c7648c2915e"
+  },
+  "verified_plotted_total_pl_usd": [
+    1575.0299999999997,
+    2258.3520163377534,
+    2234.844327734475,
+    2049.9652104089855
+  ]
+}
