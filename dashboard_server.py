@@ -480,6 +480,7 @@ def create_app(*, refresh_macro=True, auth_enabled=None, auth_service=None):
                     holding['shares'],holding['call_contracts'],holding['position_id'],transaction=db)
             except ValueError:
                 reference=dict(history_status='incomplete',history_note='Stock purchase or linked option history is unavailable; realized P/L cannot be calculated.',historical_option_net_usd=None,stock_cost_usd=None)
+            reference['closing_quote_snapshot']=exit_optimizer.closing_quote_snapshot(holding,body.get('quote_captured_at'))
             return closed_holdings.save(body,holding,reference,transaction=db)
 
     @app.get('/api/option-rollovers')

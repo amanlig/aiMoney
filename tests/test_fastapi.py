@@ -206,8 +206,25 @@ class ApiContracts(unittest.TestCase):
             self.assertEqual(self.post(f"/api/positions/{february['position_id']}/opening",dict(first,expiry='2028-02-18',price_usd=4)).status_code,201)
             self.assertEqual(self.post('/api/exit-optimizer/scenario',dict(account='RRSP',symbol='RKLB',stock_price=40)).status_code,400)
             close=dict(account='RRSP',symbol='RKLB',position_key=january['position_key'],position_revision=january['position_revision'],close_date='2026-10-27',stock_price_usd=40,buyback_price_usd=2,fees_usd=5,reviewed=True)
-            response=self.post('/api/closed-holdings',close)
+            captured_at='2026-10-27T12:00:00Z'
+            data=dict(account='RRSP',symbol='RKLB',position_id=january['position_id'],
+                      shares=1000,contracts=10,captured_at=captured_at,
+                      held=dict(expiry='2028-01-21',strike=20,bidPrice=1.9,askPrice=2.1),
+                      stock=dict(bidPrice=39.9,askPrice=40.1))
+            target=self.root/'reports'/f"exit-optimizer-rrsp-rklb-{january['position_id']}.json"
+            target.write_text(json.dumps(dict(inputs=data)))
+            close.update(quote_captured_at='obsolete',quote_snapshot=dict(stock=dict(bidPrice=999)))
+            with patch.object(server.exit_optimizer,'ROOT',self.root):
+                self.assertEqual(self.post('/api/closed-holdings',close).status_code,400)
+                self.assertEqual(self.client.get('/api/closed-holdings').json()['holdings'],[])
+                close['quote_captured_at']=captured_at
+                response=self.post('/api/closed-holdings',close)
             self.assertEqual(response.status_code,201,response.text)
+            self.assertEqual(response.json()['quote_snapshot']['stock']['bidPrice'],39.9)
+            self.assertEqual(response.json()['quote_snapshot']['captured_at'],captured_at)
+            target.unlink()
+            saved_close=self.client.get('/api/closed-holdings').json()['holdings'][0]
+            self.assertEqual(saved_close['quote_snapshot']['held']['askPrice'],2.1)
             self.assertEqual(response.json()['realized_pl_usd'],20995)
             active=self.client.get('/api/exit-optimizer/holdings').json()['holdings']
             self.assertEqual([h['position_id'] for h in active],[february['position_id']])

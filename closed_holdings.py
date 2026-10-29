@@ -20,6 +20,7 @@ def decode(row):
     record = dict(row)
     record['position'] = json.loads(record.pop('position_json'))
     record['accounting'] = json.loads(record.pop('accounting_json'))
+    record['quote_snapshot'] = record['accounting'].get('closing_quote_snapshot')
     return record
 
 

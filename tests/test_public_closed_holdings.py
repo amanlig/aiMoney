@@ -31,6 +31,44 @@ class ClosedHoldingsTests(unittest.TestCase):
         self.assertEqual(saved['realized_pl_usd'], 3943)
         self.assertEqual(saved['position'], self.holding)
 
+    def test_quote_snapshot_is_immutable_and_separate_from_execution(self):
+        quotes=dict(source='Questrade API', currency='USD', captured_at='2026-10-26T15:00:00Z',
+                    stock=dict(bidPrice=39,askPrice=41), held=dict(bidPrice=9,askPrice=11))
+        reference=dict(self.reference,closing_quote_snapshot=quotes)
+        row=closed.save(self.body,self.holding,reference,self.path)
+        self.assertEqual(row['quote_snapshot'],quotes)
+        self.assertEqual(row['stock_price_usd'],40)
+        self.assertEqual(row['buyback_price_usd'],10)
+        quotes['stock']['bidPrice']=999
+        saved=closed.records(self.path)[0]
+        self.assertEqual(saved['quote_snapshot']['stock']['bidPrice'],39)
+        self.assertEqual(saved['realized_pl_usd'],3943)
+
+    def test_saved_quote_capture_identity_and_timestamp_must_match(self):
+        import exit_optimizer as optimizer
+        root=Path(self.folder.name);(root/'reports').mkdir()
+        data=dict(account='RRSP',symbol='TEST',shares=200,contracts=2,
+                  captured_at='2026-10-26T15:00:00Z',
+                  held=dict(expiry='2028-01-21',strike=35,bidPrice=9,askPrice=11),
+                  stock=dict(bidPrice=39,askPrice=41,bidSize=100,askSize=200,delay=0))
+        target=root/'reports/exit-optimizer-rrsp-test.json'
+        with patch.object(optimizer,'ROOT',root), patch.object(optimizer,'fetch') as fetch:
+            target.write_text(json.dumps(dict(inputs=data)))
+            quote=optimizer.closing_quote_snapshot(self.holding,data['captured_at'])
+            self.assertEqual(quote['stock']['bidPrice'],39)
+            self.assertEqual(quote['stock']['delay'],0)
+            self.assertEqual(quote['held']['askPrice'],11)
+            self.assertIsNone(optimizer.closing_quote_snapshot(self.holding,None))
+            for change in [dict(captured_at='old'),dict(contracts=1),dict(account='TFSA'),
+                           dict(position_id='another'),dict(held=dict(data['held'],strike=36))]:
+                target.write_text(json.dumps(dict(inputs=dict(data,**change))))
+                with self.assertRaisesRegex(ValueError,'saved quotes changed'):
+                    optimizer.closing_quote_snapshot(self.holding,data['captured_at'])
+            target.write_text(json.dumps(dict(inputs=data,scenario=dict(stock_price=50))))
+            with self.assertRaises(ValueError):
+                optimizer.closing_quote_snapshot(self.holding,data['captured_at'])
+            fetch.assert_not_called()
+
     def test_duplicate_close_is_rejected(self):
         closed.save(self.body, self.holding, self.reference, self.path)
         with self.assertRaisesRegex(ValueError, 'already closed'):

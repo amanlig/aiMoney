@@ -28,8 +28,8 @@ rankings and the full CSV download. Show assumptions and quote/rate dates in
 exports; fetching a wider contract range may require an explicit data refresh.
 No implementation or cloud deployment is authorized by this backlog entry alone.
 
-Latest cloud release: rollover-csv-20261028-d6fa208028aa. No deployment pending.
-Latest session handoff: status/handoff-2026-10-28.md.
+Latest cloud release: historical-close-20261029-94e3f7daa29f. No deployment pending.
+Latest session handoff: status/handoff-2026-10-29.md.
 
 ## Outstanding — comparable Close versus Expire P/L
 
@@ -91,6 +91,47 @@ with narrower, executable bid–ask spreads for the selected holding / option
 contract. Frame the result as a conditional liquidity window, rather than a
 promise of the best time or price. Timing a narrow spread does not necessarily
 maximize trade proceeds or overall profit.
+
+**October 29, 2026 update — liquidity model backlog:**
+
+- **Available evidence:** recording a close now preserves the captured Questrade
+  stock and held-call bid/ask, displayed sizes, delay and capture timestamp in
+  PostgreSQL `closed_holdings.accounting_json.closing_quote_snapshot`. Actual USD
+  executions remain in `stock_price_usd`, `buyback_price_usd` and `fees_usd`.
+  A snapshot is saved only when a close is recorded; earlier closures are not
+  backfilled. Compare these quotes with actual fills to study spread paid and
+  combined stock/call execution cost. Capture time is not necessarily fill time;
+  add precise execution timestamps before interpreting differences as slippage.
+- **Proposed collection:** build bid/ask history going forward for selected stocks
+  and exact option contracts, initially every 60 seconds during market sessions.
+  Consider 30-second sampling after assessing coverage and request usage. Include
+  periods with no trades, retain collection timestamps and delay/quality flags,
+  and distinguish observations from missing samples. Polling misses changes
+  between samples; the documented historical candle API cannot backfill spreads.
+- **Rate-limit controls:** batch quotes, cache contract IDs, coordinate broker
+  requests with dashboard refreshes, inspect remaining-budget/reset headers and
+  back off on HTTP 429. At two requests per cycle, 60-second sampling uses about
+  120 requests/hour; 30 seconds uses 240, before discovery, extra batches and
+  other app activity. Published market-data limits checked October 29 were
+  20 requests/second and 15,000/hour; verify again before implementation.
+- **Cost and access:** API access is free, but reliable real-time stock/option
+  quotes may require a suitable subscription. The advertised Real-Time Streaming
+  package was CAD $9.95/month on October 29; confirm actual API entitlements,
+  exchange coverage and current pricing. Check existing subscriptions first.
+  Include hosting/storage costs and verify permitted retention/model use.
+- **Model objective:** predict conditional windows of narrower usable spreads
+  with sufficient displayed size; evaluate execution quality and the cost of
+  waiting against a time-of-day baseline. Closing observations alone are
+  insufficient to learn the intraday pattern. Start with a data-coverage study
+  before training, and use chronological out-of-sample evaluation.
+
+Sources: [API access](https://developer.questrade.com/),
+[rate limits](https://www.questrade.com/api/documentation/rate-limiting),
+[historical candles](https://www.questrade.com/api/documentation/rest-operations/market-calls/markets-candles-id),
+[market-data pricing](https://invest.questrade.com/pricing/self-directed-commissions-plans-fees/market-data).
+
+Backlog only: no collector, model, recurring task or subscription is enabled by
+this entry.
 
 Suggested first steps:
 

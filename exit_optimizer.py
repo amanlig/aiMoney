@@ -101,6 +101,34 @@ def load_capture(request,root=None):
         if matches and matches[0].get('position_id') and 'held' in capture.get('inputs',{}): capture['inputs']['position_id']=matches[0]['position_id']
     return reaccount_capture(capture)
 
+def closing_quote_snapshot(holding, captured_at):
+    """Read the exact saved market capture shown in Close, without broker calls."""
+    if not captured_at:
+        return None
+    path=capture_path(holding['account'],holding['symbol'],holding.get('position_id'))
+    if not path.exists() and holding.get('legacy_position'):
+        path=capture_path(holding['account'],holding['symbol'])
+    try:
+        capture=json.loads(path.read_text())
+        data=capture['inputs']; held=data['held']
+        matches=(not capture.get('scenario') and data.get('captured_at')==captured_at
+            and data.get('account')==holding['account'] and data.get('symbol')==holding['symbol']
+            and data.get('position_id') in (None,holding.get('position_id'))
+            and data.get('shares')==holding['shares'] and data.get('contracts')==holding['call_contracts']
+            and held.get('expiry')==holding['call_expiry']
+            and held.get('strike')==float(holding['call_strike_native_currency']))
+        if not matches:
+            raise ValueError()
+        fields=('bidPrice','askPrice','bidSize','askSize','delay','isHalted')
+        return dict(source='Questrade API',currency='USD',captured_at=data['captured_at'],
+            position_id=holding.get('position_id'),symbol=holding['symbol'],
+            expiry=held['expiry'],strike=held['strike'],
+            stock={k:data['stock'].get(k) for k in fields},
+            held={k:held.get(k) for k in fields})
+    except (OSError,ValueError,KeyError,TypeError,AttributeError):
+        raise ValueError('The saved quotes changed or are unavailable. Reload the holding and reopen Close to review them.') from None
+
+
 def purchase_price(account, symbol):
     currency='USD' if account=='LIRA' else 'CAD'
     try:

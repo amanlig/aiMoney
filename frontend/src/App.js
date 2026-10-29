@@ -139,7 +139,7 @@ export function Dashboard() {
       </nav>
     </header>
     ${settings ? html`<${Profile} onClose=${closeSettings} onName=${setName}/>` : null}
-    ${closing && holding ? html`<${ClosePosition} holding=${holding} onClose=${() => setClosing(false)} onSaved=${holdingClosed}/>` : null}
+    ${closing && holding ? html`<${ClosePosition} holding=${holding} capture=${baseline} onClose=${() => setClosing(false)} onSaved=${holdingClosed}/>` : null}
     ${expiring && holding ? html`<${ExpireWorthless} holding=${holding} onClose=${() => setExpiring(false)} onSaved=${optionExpired}/>` : null}
     ${records ? html`<${Settings} holding=${holding} onClose=${closeTransactions}/>` : null}
     ${creating ? html`<${NewHolding} holding=${holding} onClose=${() => setCreating(false)} onSaved=${holdingCreated}/>` : null}
@@ -188,10 +188,10 @@ export function Dashboard() {
       ${analysis.inputs.opening_reference?.history_status ? html`<p className="center" id="position-history">${analysis.inputs.opening_reference.history_status === 'linked'
         ? `Historical option net cash: ${money(analysis.inputs.opening_reference.historical_option_net_usd)} · ${analysis.inputs.opening_reference.rollover_count} recorded rollovers · historical option fees: ${money(analysis.inputs.opening_reference.historical_option_fees_usd)}`
         : 'Cumulative P/L unavailable.'} ${analysis.inputs.opening_reference.history_note}</p>` : null}
-      <p className="center">Each P/L bar shows the total result for that choice: profit above zero, loss below zero. Close includes the stock and option exit; Expire shows option-only P/L while retaining the shares. Future outcomes are simulations.</p>
+      <p className="center">Each P/L bar shows the total result for that choice: profit above zero, loss below zero. Close includes the stock and option exit; Expire shows option-only P/L while retaining the shares. The slider close scenario uses captured time to expiry, volatility and spreads; it does not predict when the price is reached. Future outcomes are simulations.</p>
       ${analysis.inputs.opening_reference?.prior_realized_option_usd === null ? html`<p className="center">${analysis.inputs.opening_reference.realized_history_note}</p>` : null}
       <p className="exit-mode-note">Close: sell stock and close the replacement call at the model horizon. Expire: assume worthless expiry and retain stock. The existing-call buyback is charged in both modes. Top three are ranked in Close mode; switches do not rerank them.</p>
-      <${Chart} key=${holdingIdentity(holding)} analysis=${analysis} baseline=${baseline} modes=${modes} onMode=${(key, mode) => setModes(old => ({...old, [key]: mode}))}/>
+      <${Chart} key=${holdingIdentity(holding)} analysis=${analysis} baseline=${baseline} modes=${modes} scenarioPrice=${pending ? null : price} onMode=${(key, mode) => setModes(old => ({...old, [key]: mode}))}/>
       <p className="center">Sale floor = original purchase × 1.10.<br/>Close P/L = accumulated option cash + exit cash − stock purchase cost and recorded purchase fees.<br/>Expire option P/L = accumulated option cash + new premium − held-call buyback today.<br/><small>Path percentages describe this simulation, not guaranteed probabilities. Early assignment is not simulated.</small></p>
       <p className="center funding-note">Roll cash needed = max(existing-call buyback − new premium, $0), before fees. Assumes a combined rollover; separate legs may require the full buyback first. This is the net debit, not broker margin or an additional-deposit estimate. <a href="https://invest.questrade.com/learning/questrade-basics/balances-and-reports/real-time-buying-power" target="_blank" rel="noopener">About broker buying power</a></p>
       <details className="analysis-details"><summary>Analysis details & sources</summary><${AnalysisDetails} analysis=${analysis}/></details>

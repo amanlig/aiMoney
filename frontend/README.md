@@ -150,3 +150,27 @@ includes saved quote time, criteria, funding, probability and sale-floor flags;
 worthless-expiry cash is explicitly option-only. No market refresh is triggered.
 The button is disabled without matching results or while analysis is updating.
 Run `node tests/test_rollover_export.mjs` for isolated CSV checks.
+
+Moving the stock-price slider away from the captured midpoint adds a separate
+Close at slider price chart group beside the fixed Close today reference. It uses
+the scenario model's stock bid, held-call ask and full-position P/L, including
+recorded cash and costs. Returning to the captured midpoint or resetting hides
+it. While a scenario request is pending, or its returned price differs from the
+slider, that group stays hidden. Rollover Close/Expire controls remain separate.
+The hypothetical close holds captured time to expiry, calibrated volatility and
+spreads fixed; it does not estimate the time at which the price will be reached.
+
+Close automatically shows saved Questrade stock and held-call bid/ask prices in
+read-only USD/share fields, with capture time, displayed sizes and delay. They
+come from the captured baseline even when the scenario slider is changed. Actual
+execution prices remain separate manual inputs. Recording a close stores the
+server-verified quote snapshot under accounting.closing_quote_snapshot and exposes
+it as quote_snapshot in the closure API and Closed holdings quote comparison.
+A replaced/missing or mismatched capture requires reloading before saving; no
+broker request is made. Closures without saved quotes remain supported and show
+quote comparison as unavailable. Existing records are not backfilled.
+
+Closed holdings can also show an explicitly backfilled historical_close_reference
+under accounting_json. Historical closes are daily stock/held-call candle prices,
+kept separate from closing_quote_snapshot, actual executions and realized P/L.
+They cannot supply historical bid/ask or establish market quotes at fill time.

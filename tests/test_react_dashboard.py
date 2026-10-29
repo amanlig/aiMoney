@@ -137,6 +137,9 @@ class ReactDashboardTests(unittest.TestCase):
                 route.fulfill(json=record)
             elif path == 'closed-holdings':
                 record=dict(id=1, **body, shares=100, contracts=1, expiry='2026-11-20', strike=25, stock_sale_usd=3000, buyback_total_usd=200, closing_cash_usd=2795, realized_pl_usd=995, accounting=dict(stock_cost_usd=2000,historical_option_net_usd=200,rollover_count=0))
+                if body.get('quote_captured_at'):
+                    q=capture()['inputs']
+                    record['quote_snapshot']=dict(captured_at=q['captured_at'],stock=q['stock'],held=q['held'])
                 self.closed_records.append(record)
                 route.fulfill(json=record)
             elif path == 'optimizer-recommendations':
@@ -192,12 +195,19 @@ class ReactDashboardTests(unittest.TestCase):
         self.assertEqual(self.posts, [])
         baseline = self.page.locator('#chart g[role="group"]').first
         self.assertIn('Net cash US$2,100.00', baseline.get_attribute('aria-label'))
+        scenario = self.page.locator('#chart [data-scenario-close="true"]')
+        self.assertEqual(scenario.count(), 0)
         slider = self.page.get_by_role('slider')
         slider.fill('25')
         self.page.get_by_text('Close today remains fixed at captured quotes. Synthetic scenario.').wait_for()
         self.assertIn('Net cash US$2,100.00', baseline.get_attribute('aria-label'))
+        self.assertEqual(scenario.count(), 1)
+        self.assertEqual(scenario.locator('rect[data-pnl="total"]').get_attribute('data-value'), '300')
+        self.assertIn('Stock sale US$9,999.00', scenario.locator('g[role="group"]').get_attribute('aria-label'))
+        self.assertIn('Close at slider price', scenario.locator('g[role="group"]').get_attribute('aria-label'))
+        self.assertEqual(self.page.get_by_role('radio', name='Expire', exact=True).count(), 3)
         self.page.get_by_role('radio', name='Expire', exact=True).first.check()
-        self.assertIn('Option-only P/L US$180.00', self.page.locator('#chart g[role="group"]').nth(1).get_attribute('aria-label'))
+        self.assertIn('Option-only P/L US$180.00', self.page.locator('#chart g[role="group"]').nth(2).get_attribute('aria-label'))
         self.page.get_by_role('button', name='Recommendation', exact=True).click()
         self.page.get_by_role('button', name='Generate recommendation').click()
         self.page.get_by_text('Synthetic assessment.', exact=True).wait_for()
@@ -206,6 +216,7 @@ class ReactDashboardTests(unittest.TestCase):
         self.assertEqual(request['modes']['RRSP|TEST|2026-12-18|26'], 'expire')
         self.page.get_by_role('button', name='Reset to current quote').click()
         self.assertEqual(slider.input_value(), '23')
+        self.assertEqual(scenario.count(), 0)
         self.page.get_by_role('button', name='Refresh data & analyze').click()
         self.page.get_by_text('Quotes refreshed. Chart updated.').wait_for()
         self.assertEqual(sum(path == 'exit-optimizer/run' for path, _ in self.posts), 1)
@@ -790,11 +801,19 @@ class ReactDashboardTests(unittest.TestCase):
 
     def test_close_modal_report_and_persisted_dropdown_removal(self):
         self.open_dashboard()
+        self.page.get_by_role('slider').fill('25')
+        self.page.get_by_text('Close today remains fixed at captured quotes. Synthetic scenario.').wait_for()
         self.page.get_by_role('button', name='Close', exact=True).click()
         self.page.get_by_role('button', name='Cancel', exact=True).click()
         self.assertEqual(self.page.get_by_label('Holding', exact=True).locator('option').count(), 1)
         self.page.get_by_role('button', name='Close', exact=True).click()
         modal=self.page.get_by_role('dialog', name='Close holding')
+        self.assertEqual(modal.get_by_label('Stock bid (USD/share)', exact=True).input_value(), '22')
+        self.assertEqual(modal.get_by_label('Stock ask (USD/share)', exact=True).input_value(), '24')
+        self.assertEqual(modal.get_by_label('Held call bid (USD/share)', exact=True).input_value(), '0.9')
+        self.assertEqual(modal.get_by_label('Held call ask (USD/share)', exact=True).input_value(), '1')
+        self.assertTrue(modal.get_by_label('Held call ask (USD/share)', exact=True).evaluate('(el) => el.readOnly'))
+        self.assertEqual(modal.get_by_label('Call buyback price (USD/share)', exact=True).input_value(), '')
         modal.get_by_label('Close date', exact=True).fill('2026-10-27')
         modal.get_by_label('Stock sale price (USD/share)', exact=True).fill('30')
         modal.get_by_label('Call buyback price (USD/share)', exact=True).fill('2')
@@ -806,17 +825,37 @@ class ReactDashboardTests(unittest.TestCase):
         self.assertEqual(self.page.get_by_label('Holding', exact=True).locator('option').count(), 0)
         self.assertEqual(self.page.locator('#results').count(), 0)
         self.assertEqual(self.page.get_by_role('button', name='Close', exact=True).count(), 0)
+        self.page.get_by_text('Quote comparison', exact=True).click()
+        self.page.get_by_text('Stock bid / ask: US$22.00 / US$24.00', exact=False).wait_for()
         self.page.get_by_role('button', name='Back to active holdings', exact=True).click()
         self.assertTrue(self.page.get_by_role('button', name='Close', exact=True).is_disabled())
         submitted=next(body for path, body in self.posts if path == 'closed-holdings')
         self.assertEqual(submitted['position_key'], 'test-position')
         self.assertEqual(submitted['stock_price_usd'], 30)
         self.assertEqual(submitted['buyback_price_usd'], 2)
+        self.assertEqual(submitted['quote_captured_at'], '2026-10-21T12:00:00Z')
         self.page.reload()
         self.page.get_by_text('No active holdings. Use New to start with a stock purchase.').wait_for()
         self.page.get_by_role('button', name='Closed holdings', exact=True).click()
         self.page.get_by_text('US$995.00', exact=True).wait_for()
         self.assertEqual(self.page.get_by_label('Holding', exact=True).locator('option').count(), 0)
+
+    def test_historical_closes_are_distinct_from_captured_bid_ask(self):
+        self.open_dashboard()
+        self.closed_records=[dict(id=1,close_date='2026-10-26',account='RRSP',symbol='ASTS',
+            shares=500,contracts=5,expiry='2028-01-21',strike=40,stock_sale_usd=20000,
+            stock_price_usd=40,buyback_total_usd=7955,buyback_price_usd=15.91,
+            fees_usd=20.15,closing_cash_usd=12024.85,realized_pl_usd=20710.63,
+            accounting=dict(historical_close_reference=dict(date='2026-10-26',
+                stock=dict(close=39.45),held=dict(close=15.75))))]
+        self.page.get_by_role('button',name='Closed holdings',exact=True).click()
+        self.page.get_by_text('Historical closes',exact=True).click()
+        reference=self.page.locator('#closed-holdings-report details').first
+        self.assertIn('Stock close: US$39.45',reference.inner_text())
+        self.assertIn('Held call close: US$15.75',reference.inner_text())
+        self.assertIn('historical bid/ask unavailable',reference.inner_text())
+        self.assertEqual(self.page.get_by_text('Quote comparison',exact=True).count(),0)
+        self.page.get_by_text('US$20,710.63',exact=True).wait_for()
 
     def test_home_legacy_redirect_and_mobile(self):
         self.page.goto(self.base + '/')
