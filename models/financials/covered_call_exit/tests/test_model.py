@@ -58,9 +58,39 @@ class ExitModelTests(unittest.TestCase):
         self.assertIsNone(result['rows'][0]['realized_pl_usd'])
         self.assertIsNone(result['rows'][0]['total_pl_usd'])
 
+    def test_midpoint_close_preserves_quotes_and_actual_pricing(self):
+        import copy
+        data=self.fixture(); original=copy.deepcopy(data)
+        result=m.evaluate(data,paths=100)
+        row=next(r for r in result['rows'] if r['strategy']=='Close now')
+        self.assertAlmostEqual(row['cash_flows']['stock_sale'],20025)
+        self.assertEqual(row['cash_flows']['option_purchase'],-7250)
+        self.assertAlmostEqual(row['net_profit_usd'],20275)
+        self.assertEqual(data,original)
+        actual=m.evaluate(data,paths=100,close_at_mid=False)
+        self.assertEqual(actual['baseline'],12500)
+        # Existing saved captures adopt midpoints when accounting is reloaded.
+        actual.pop('close_pricing')
+        m.apply_accounting(data,actual)
+        self.assertAlmostEqual(actual['baseline'],12775)
+        self.assertEqual(data,original)
+
+    def test_explicit_rate_changes_future_valuation_not_midpoint_close(self):
+        data=self.fixture()
+        data['candidates']=[dict(data['held'],validated=True,strike=45,bidPrice=12,askPrice=13)]
+        low=m.evaluate(data,paths=100,rate=.01)
+        high=m.evaluate(data,paths=100,rate=.09)
+        self.assertEqual(low['rate'],.01)
+        self.assertEqual(high['rate'],.09)
+        self.assertEqual(low['baseline'],high['baseline'])
+        self.assertNotEqual(low['held_implied_volatility'],high['held_implied_volatility'])
+        self.assertNotEqual(low['top_choices'][0]['mean'],high['top_choices'][0]['mean'])
+        for invalid in [True,float('nan'),float('inf'),-.2,.4,'0.04']:
+            with self.assertRaises(ValueError):m.evaluate(data,paths=100,rate=invalid)
+
     def test_close_cash_and_seed(self):
         d=self.fixture();r=m.evaluate(d,paths=100)
-        self.assertEqual(r['baseline'],12500)
+        self.assertAlmostEqual(r['baseline'],12775)
         self.assertEqual(r,m.evaluate(d,paths=100))
 
     def test_recorded_expiry_is_visible_while_current_history_is_incomplete(self):
@@ -105,8 +135,8 @@ class ExitModelTests(unittest.TestCase):
             self.assertLessEqual(row['cash_flows']['option_purchase'],0)
             self.assertNotIn('fees',row['cash_flows'])
         close=next(row for row in r['rows'] if row['days']==0)
-        self.assertEqual(close['cash_flows']['stock_sale'],20000)
-        self.assertEqual(close['cash_flows']['option_purchase'],-7500)
+        self.assertEqual(close['cash_flows']['stock_sale'],20025)
+        self.assertEqual(close['cash_flows']['option_purchase'],-7250)
         roll=next(row for row in r['rows'] if row['strategy']=='Roll then close')
         self.assertAlmostEqual(roll['cash_flows']['option_sale'],6000)
 

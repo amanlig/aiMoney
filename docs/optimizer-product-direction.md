@@ -203,13 +203,12 @@ for the user's current conditional scenario-analysis use.
 Revisit the order as data coverage and user requirements become clearer; no dates
 or numerical risk limits have been agreed.
 
-## Next research item captured October 21, 2026
+## Liquidity research canceled October 29, 2026
 
-Investigate intraday liquidity and trade timing: predict useful windows with
-narrower executable bid–ask spreads, considering size, freshness, both rollover
-legs and the cost of waiting. Start with data feasibility and a time-of-day
-baseline before ML. See [next-to-do specification](../TODO.md). Documentation
-only; implementation requires the next step-by-step instruction.
+The user canceled the proposed intraday liquidity model and quote collector.
+Close today uses captured stock and held-call midpoints instead. Captured bid/ask
+quotes remain available unchanged in the actual Close workflow, whose execution
+inputs remain manual. Midpoint valuation is not a guaranteed execution price.
 
 ## Related documents
 

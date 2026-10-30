@@ -1,3 +1,5 @@
+import {Input} from './Input.js';
+import {InterestRateSettings} from './InterestRateSettings.js';
 import {html, useState, useEffect, useRef} from './ui.js';
 import {api, money, readStored, holdingLabel, holdingIdentity} from './api.js';
 
@@ -9,23 +11,27 @@ const PROFILE = 'covered-call-profile-v1';
 const transactionTabs = [['stock', 'Stock purchase'], ['option', 'Option Opening Sale'], ['rollover', 'Rollover']];
 const columns = [['date', 'Purchase date'], ['quantity', 'Purchase shares'], ['priceUsd', 'Purchase price (USD/share)'], ['feesUsd', 'Purchase fees (USD)']];
 
-export function Profile({onClose, onName}) {
+export function Profile({onClose, onName, holding, onInterestRate, valuationDate}) {
   const dialog = useRef();
   const [name, setName] = useState(() => readStored(PROFILE, {}).name || '');
+  const [interestRate, setInterestRate] = useState(() => readStored(PROFILE, {}).interestRate || {mode:'treasury'});
   const [status, setStatus] = useState('');
   useEffect(() => {dialog.current.showModal();}, []);
   function save(event) {
     event.preventDefault();
     try {
-      const next = {...readStored(PROFILE, {}), name: name.trim()};
+      const rate = interestRate.mode === 'manual' ? {mode:'manual',annual_percent:Number(interestRate.annual_percent)} : {mode:'treasury'};
+      if (rate.mode === 'manual' && (interestRate.annual_percent === '' || !Number.isFinite(rate.annual_percent) || rate.annual_percent < -5 || rate.annual_percent > 25)) throw Error('Enter an annual interest yield between -5% and 25%.');
+      const next = {...readStored(PROFILE, {}), name: name.trim(), interestRate:rate};
       localStorage.setItem(PROFILE, JSON.stringify(next));
-      onName(next.name); onClose();
-    } catch {setStatus('Profile name could not be saved in this browser.');}
+      onName(next.name); onInterestRate?.(rate); onClose();
+    } catch(error) {setStatus(error.message || 'Profile settings could not be saved in this browser.');}
   }
   return html`<dialog ref=${dialog} id="profile-settings" aria-labelledby="profile-title" onCancel=${onClose} onClose=${onClose}>
     <div className="settings-header"><h2 id="profile-title">Profile</h2><button type="button" aria-label="Close profile" onClick=${onClose}>×</button></div>
     <form onSubmit=${save}>
-      <label>Profile name<input maxLength="60" value=${name} onChange=${e => setName(e.target.value)}/></label>
+      <label>Profile name<${Input} maxLength="60" value=${name} onChange=${e => setName(e.target.value)}/></label>
+      <${InterestRateSettings} holding=${holding} valuationDate=${valuationDate} value=${interestRate} onChange=${setInterestRate}/>
       <div className="entry-actions"><button>Save profile</button><button type="button" onClick=${onClose}>Cancel</button></div>
       <p role="status">${status}</p>
     </form>
@@ -108,7 +114,7 @@ export function Settings({onClose, holding}) {
       <p>Enter one purchase lot or a combined average price using total shares and total fees. All amounts are USD. Enter 0 if there are no fees.</p>
       <div className="table-scroll"><table><thead><tr><th>Holding / account</th>${columns.map(([field, title]) => html`<th key=${field} scope="col">${title}</th>`)}<th>Total cost (USD)</th></tr></thead>
         <tbody>${rows.filter(selectedPurchase).map(row => html`<tr key=${row.id}><td>${row.account} · ${row.symbol}</td>
-          ${columns.map(([field, title]) => html`<td key=${field}><input aria-label=${`${row.account} ${row.symbol} ${title}`} type=${field === 'date' ? 'date' : 'number'} step="any" min=${field === 'feesUsd' ? '0' : '0.00000001'} required value=${row[field]} onChange=${e => change(row.id, field, e.target.value)}/></td>`)}
+          ${columns.map(([field, title]) => html`<td key=${field}><${Input} aria-label=${`${row.account} ${row.symbol} ${title}`} type=${field === 'date' ? 'date' : 'number'} step="any" min=${field === 'feesUsd' ? '0' : '0.00000001'} required value=${row[field]} onChange=${e => change(row.id, field, e.target.value)}/></td>`)}
           <td>${row.quantity !== '' && row.priceUsd !== '' && row.feesUsd !== '' ? money(Number(row.quantity) * Number(row.priceUsd) + Number(row.feesUsd)) : '—'}</td></tr>`)}</tbody></table></div>
       <div className="entry-actions"><button disabled=${busy || !ready || !activeHolding}>Save stock purchase</button><button type="button" onClick=${onClose}>Cancel</button></div>
       <p role="status">${status}</p>
@@ -120,8 +126,8 @@ export function Settings({onClose, holding}) {
 }
 
 function OriginalExpiryFields({marked,fees,gross,openingFees=0,disabled,onMarked,onFees}) {
-  return html`<label className="review"><input type="checkbox" disabled=${disabled} checked=${marked} onChange=${e => onMarked(e.target.checked)}/>This original call expired worthless, with no buyback or assignment; I retained the shares.</label>
-    ${marked ? html`<label>Original call expiration fees (USD)<input type="number" required min="0" step="any" disabled=${disabled} value=${fees} onChange=${e => onFees(e.target.value)}/></label>
+  return html`<label className="review"><${Input} type="checkbox" disabled=${disabled} checked=${marked} onChange=${e => onMarked(e.target.checked)}/>This original call expired worthless, with no buyback or assignment; I retained the shares.</label>
+    ${marked ? html`<label>Original call expiration fees (USD)<${Input} type="number" required min="0" step="any" disabled=${disabled} value=${fees} onChange=${e => onFees(e.target.value)}/></label>
       <p>Recorded realized P/L: ${fees!=='' ? money(gross-openingFees-Number(fees)) : '—'}. The current short call stays active. Its opening premium can be recorded separately; full P/L remains incomplete until its history is recorded.</p>` : null}`;
 }
 
@@ -181,22 +187,22 @@ function PremiumForm({initialHolding,onSaved}) {
   }
   return html`<section className="option-sale-form"><h3>Record original option premium sale (USD)</h3>
     <p>Record a completed opening call sale against your confirmation. Saving does not place an order. Gross USD amounts exclude fees. Past-dated sales can be saved without marking them expired worthless. For a bought-back or rolled call, leave that box unchecked and record both legs in Rollover.</p>
-    ${matching.length ? html`<p>This position already has its opening sale. Use Edit to correct it.</p>` : html`<form onSubmit=${save}><div className="fields">${definitions.map(([key, title, type]) => html`<label key=${key}>${title}<input type=${type} required step="any" min="0.00000001" value=${fields[key] || ''} onChange=${e => {setFields(old => ({...old, [key]: e.target.value})); setReviewed(false);}}/></label>`)}</div>
+    ${matching.length ? html`<p>This position already has its opening sale. Use Edit to correct it.</p>` : html`<form onSubmit=${save}><div className="fields">${definitions.map(([key, title, type]) => html`<label key=${key}>${title}<${Input} type=${type} required step="any" min="0.00000001" value=${fields[key] || ''} onChange=${e => {setFields(old => ({...old, [key]: e.target.value})); setReviewed(false);}}/></label>`)}</div>
       <p>Total premium: ${holding && Number(fields.price_usd) > 0 ? money(Number(fields.contracts) * 100 * Number(fields.price_usd)) : '—'}</p>
-      ${holding?.position_id && holding.call_contracts>0 ? html`<label className="review"><input type="checkbox" checked=${historicalOpening} onChange=${e => {setHistoricalOpening(e.target.checked);setReviewed(false);setStatus('');}}/>This is an earlier original call; its strike or expiry differs from the current holding.</label>
+      ${holding?.position_id && holding.call_contracts>0 ? html`<label className="review"><${Input} type="checkbox" checked=${historicalOpening} onChange=${e => {setHistoricalOpening(e.target.checked);setReviewed(false);setStatus('');}}/>This is an earlier original call; its strike or expiry differs from the current holding.</label>
       ${historicalOpening && !expiredWorthless ? html`<p>The current holding stays unchanged. Record each rollover from this original call through the current call; cumulative P/L is unavailable until the history is complete.</p>` : null}` : null}
       ${earlierCall(fields) ? html`<${OriginalExpiryFields} marked=${expiredWorthless} fees=${expirationFees} gross=${Number(fields.contracts)*100*Number(fields.price_usd)} disabled=${busy} onMarked=${value => {setExpiredWorthless(value);setReviewed(false);}} onFees=${value => {setExpirationFees(value);setReviewed(false);}}/>` : null}
-      <label className="review"><input type="checkbox" required checked=${reviewed} onChange=${e => setReviewed(e.target.checked)}/>I verified the opening sale against my confirmation.</label>
+      <label className="review"><${Input} type="checkbox" required checked=${reviewed} onChange=${e => setReviewed(e.target.checked)}/>I verified the opening sale against my confirmation.</label>
       <button disabled=${busy || !ready || !holding}>Save opening premium</button>
     </form>`}<p role="status">${status}</p><h3>Opening sale</h3>
     ${matching.length ? matching.map(r => html`<p key=${`${r.id}-${r.net_cad ?? 'usd'}`}>${r.account} · ${r.symbol} · ${r.expiry} · strike ${r.strike} · ${r.settlement_date} · ${r.contracts} × 100 × ${money(r.price_usd)} = ${money(r.contracts * 100 * r.price_usd)} gross USD <button type="button" disabled=${busy} onClick=${() => {setEditing({...r, reviewed: false}); setStatus('');}}>Edit</button></p>`) : html`<p>No original premium recorded.</p>`}
     ${editing ? html`<form onSubmit=${update}>
       <h3>Edit ${editing.symbol} opening sale · ${editing.settlement_date}</h3>
       <p>Enter the premium per underlying share. Total = contracts × 100 × premium.</p>
-      <div className="fields">${[['price_usd', 'Premium sold (USD/share)']].map(([key, label]) => html`<label key=${key}>${label}<input type="number" required step="any" min=${key === 'fees_usd' ? '0' : '0.00000001'} value=${editing[key]} onChange=${e => setEditing({...editing, [key]: Number(e.target.value), reviewed: false})}/></label>`)}</div>
+      <div className="fields">${[['price_usd', 'Premium sold (USD/share)']].map(([key, label]) => html`<label key=${key}>${label}<${Input} type="number" required step="any" min=${key === 'fees_usd' ? '0' : '0.00000001'} value=${editing[key]} onChange=${e => setEditing({...editing, [key]: Number(e.target.value), reviewed: false})}/></label>`)}</div>
       <p>Total premium: ${money(editing.contracts * 100 * editing.price_usd)}</p>
       ${earlierCall(editing) ? html`<${OriginalExpiryFields} marked=${editing.expired_worthless || false} fees=${editing.expiration_fees_usd ?? '0'} gross=${editing.contracts*100*editing.price_usd} openingFees=${editing.fees_usd || 0} disabled=${busy} onMarked=${value => setEditing({...editing,expired_worthless:value,reviewed:false})} onFees=${value => setEditing({...editing,expiration_fees_usd:Number(value),reviewed:false})}/>` : null}
-      <label className="review"><input type="checkbox" required checked=${editing.reviewed} onChange=${e => setEditing({...editing, reviewed: e.target.checked})}/>I verified the corrected sale against my confirmation.</label>
+      <label className="review"><${Input} type="checkbox" required checked=${editing.reviewed} onChange=${e => setEditing({...editing, reviewed: e.target.checked})}/>I verified the corrected sale against my confirmation.</label>
       <button disabled=${busy}>Save changes</button>
       <button type="button" disabled=${busy} onClick=${() => setEditing(null)}>Cancel</button>
     </form>` : null}
@@ -234,7 +240,7 @@ function RolloverForm({initialHolding, active, onSaved, onExpired}) {
   }, [active,initialHolding?.position_revision]);
   const holding = initialHolding;
   const update = (key, value) => {setFields(old => ({...old, [key]: value})); setReviewed(false);};
-  const input = (key, label, type = 'number') => html`<label>${label}<input required type=${type} step=${key === 'contracts' ? '1' : 'any'} min=${key === 'fees_usd' ? '0' : '0.00000001'} value=${fields[key]} onChange=${e => update(key, e.target.value)}/></label>`;
+  const input = (key, label, type = 'number') => html`<label>${label}<${Input} required type=${type} step=${key === 'contracts' ? '1' : 'any'} min=${key === 'fees_usd' ? '0' : '0.00000001'} value=${fields[key]} onChange=${e => update(key, e.target.value)}/></label>`;
   const totalsReady = ['contracts', 'buyback_price_usd', 'sale_price_usd', 'fees_usd'].every(key => fields[key] !== '' && Number.isFinite(Number(fields[key])));
   const buyback = Number(fields.contracts) * 100 * Number(fields.buyback_price_usd);
   const sale = Number(fields.contracts) * 100 * Number(fields.sale_price_usd);
@@ -248,7 +254,8 @@ function RolloverForm({initialHolding, active, onSaved, onExpired}) {
       for (const key of ['contracts', 'buyback_strike', 'buyback_price_usd', 'sale_strike', 'sale_price_usd', 'fees_usd']) payload[key] = Number(fields[key]);
       await api(holding.position_id ? `/api/positions/${holding.position_id}/rollovers` : '/api/option-rollovers', {body: payload});
       setReviewed(false);
-      if (holding.position_id) {setFields(old => ({...old, buyback_expiry: payload.sale_expiry, buyback_strike: payload.sale_strike, buyback_price_usd: '', sale_expiry: '', sale_strike: '', sale_price_usd: ''})); await onSaved?.();}
+      setFields(old => ({...old, settlement_date: '', fees_usd: '', ...(holding.position_id ? {buyback_expiry: payload.sale_expiry, buyback_strike: payload.sale_strike, buyback_price_usd: '', sale_expiry: '', sale_strike: '', sale_price_usd: ''} : {})}));
+      if (holding.position_id) await onSaved?.();
       setStatus('Rollover saved. Close Transactions to update chart P/L using saved quotes.');
     } catch(e) {setStatus(e.message);} finally {setBusy(false);}
   }
@@ -263,7 +270,7 @@ function RolloverForm({initialHolding, active, onSaved, onExpired}) {
       <fieldset><legend>Sale · replacement call</legend><div className="fields">${input('sale_expiry', 'Replacement expiry', 'date')}${input('sale_strike', 'Replacement strike (USD)')}${input('sale_price_usd', 'Sale premium (USD/share)')}</div></fieldset>
       ${input('fees_usd', 'Total rollover fees (USD)')}
       <p>${totalsReady ? `Buyback: ${money(buyback)} · Sale: ${money(sale)} · Net ${net < 0 ? 'debit' : 'credit'}: ${money(Math.abs(net))}` : 'Enter both premiums to see the rollover totals.'}</p>
-      <label className="review"><input type="checkbox" required checked=${reviewed} onChange=${e => setReviewed(e.target.checked)}/>I verified both legs against my confirmation.</label>
+      <label className="review"><${Input} type="checkbox" required checked=${reviewed} onChange=${e => setReviewed(e.target.checked)}/>I verified both legs against my confirmation.</label>
       <button disabled=${!ready || !holding || busy}>Save rollover</button><p role="status">${status}</p>
     </form>
     <p>Saved rollovers are linked to the original opening sale for cumulative P/L. ${historicalOpening ? 'Record historical rollovers in trade order through the current call. The current holding stays unchanged while earlier trades are entered; a subsequent rollover of the current call updates it.' : 'A rollover updates this position’s current call.'}</p>

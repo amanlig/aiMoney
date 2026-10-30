@@ -1,5 +1,8 @@
 # Next to do
 
+Session wrapped October 29, 2026 (Vancouver). Resume October 30 with the user;
+no next feature selected or scheduled. See [latest handoff](docs/progress-2026-10-29.md).
+
 ## Future work — user-controlled rollover criteria and pricing assumptions
 
 Requested October 28, 2026 (Vancouver), at session wrap-up. Planning only;
@@ -16,19 +19,22 @@ implement when the user resumes and selects the next change.
    reference and reset. Decide whether the control applies to the held call,
    replacement calls or both; historical-return stock paths remain a separate
    input. Scenario changes must not overwrite saved market quotes.
-4. **U.S. Treasury yield for interest rates:** replace the fixed 4% assumption
-   with published USD Treasury yields matched/interpolated to remaining option
-   maturity and converted to the continuously compounded rate required by
-   Black–Scholes. Show source, observation date and rate; define stale/missing-data
-   behavior and a consistent discounting policy for the comparison horizon.
-   Source: https://home.treasury.gov/resource-center/data-chart-center/interest-rates
+4. **U.S. Treasury interest-rate default — deployed October 29:**
+   Profile → Settings supports a maturity-matched Treasury default and manual
+   annual-yield override, persisted per browser. The app interpolates the held
+   call's maturity, converts the bond-equivalent yield to a continuous rate and
+   passes it explicitly to evaluation/repricing/recommendations. Source/date and
+   rate appear in settings, analysis and CSV. This uses one rate for all calls
+   and discounting; full per-maturity curve pricing remains future work.
+   Source: https://home.treasury.gov/treasury-daily-interest-rate-xml-feed
+
 
 Apply selected criteria and pricing assumptions consistently to simulations,
 rankings and the full CSV download. Show assumptions and quote/rate dates in
 exports; fetching a wider contract range may require an explicit data refresh.
 No implementation or cloud deployment is authorized by this backlog entry alone.
 
-Latest cloud release: historical-close-20261029-94e3f7daa29f. No deployment pending.
+Latest cloud release: report-alignment-20261029-208da5c9d250. Interest-rate settings, rollover-field reset and numeric/text report heading alignment are deployed; no deployment pending.
 Latest session handoff: status/handoff-2026-10-29.md.
 
 ## Outstanding — comparable Close versus Expire P/L
@@ -77,85 +83,9 @@ store gross amounts without opening-fee entry; future execution fees and taxes
 remain excluded. Purchase fees are allocated in proportion to held shares versus
 saved basis quantity. This is position P/L for recorded history, not account equity.
 
-## 1. Research intraday liquidity and trade timing
+## Liquidity model — canceled October 29, 2026
 
-Captured October 21, 2026 at the user's request. Documentation only; no model,
-quote collector, scheduling or order execution is implemented by this item.
-
-**Challenge:** liquidity and bid–ask spreads can change during the trading day.
-A suitable covered-call strategy may have different execution costs depending on
-when its stock and option legs are traded.
-
-**Proposed solution:** investigate an ML model that estimates upcoming windows
-with narrower, executable bid–ask spreads for the selected holding / option
-contract. Frame the result as a conditional liquidity window, rather than a
-promise of the best time or price. Timing a narrow spread does not necessarily
-maximize trade proceeds or overall profit.
-
-**October 29, 2026 update — liquidity model backlog:**
-
-- **Available evidence:** recording a close now preserves the captured Questrade
-  stock and held-call bid/ask, displayed sizes, delay and capture timestamp in
-  PostgreSQL `closed_holdings.accounting_json.closing_quote_snapshot`. Actual USD
-  executions remain in `stock_price_usd`, `buyback_price_usd` and `fees_usd`.
-  A snapshot is saved only when a close is recorded; earlier closures are not
-  backfilled. Compare these quotes with actual fills to study spread paid and
-  combined stock/call execution cost. Capture time is not necessarily fill time;
-  add precise execution timestamps before interpreting differences as slippage.
-- **Proposed collection:** build bid/ask history going forward for selected stocks
-  and exact option contracts, initially every 60 seconds during market sessions.
-  Consider 30-second sampling after assessing coverage and request usage. Include
-  periods with no trades, retain collection timestamps and delay/quality flags,
-  and distinguish observations from missing samples. Polling misses changes
-  between samples; the documented historical candle API cannot backfill spreads.
-- **Rate-limit controls:** batch quotes, cache contract IDs, coordinate broker
-  requests with dashboard refreshes, inspect remaining-budget/reset headers and
-  back off on HTTP 429. At two requests per cycle, 60-second sampling uses about
-  120 requests/hour; 30 seconds uses 240, before discovery, extra batches and
-  other app activity. Published market-data limits checked October 29 were
-  20 requests/second and 15,000/hour; verify again before implementation.
-- **Cost and access:** API access is free, but reliable real-time stock/option
-  quotes may require a suitable subscription. The advertised Real-Time Streaming
-  package was CAD $9.95/month on October 29; confirm actual API entitlements,
-  exchange coverage and current pricing. Check existing subscriptions first.
-  Include hosting/storage costs and verify permitted retention/model use.
-- **Model objective:** predict conditional windows of narrower usable spreads
-  with sufficient displayed size; evaluate execution quality and the cost of
-  waiting against a time-of-day baseline. Closing observations alone are
-  insufficient to learn the intraday pattern. Start with a data-coverage study
-  before training, and use chronological out-of-sample evaluation.
-
-Sources: [API access](https://developer.questrade.com/),
-[rate limits](https://www.questrade.com/api/documentation/rate-limiting),
-[historical candles](https://www.questrade.com/api/documentation/rest-operations/market-calls/markets-candles-id),
-[market-data pricing](https://invest.questrade.com/pricing/self-directed-commissions-plans-fees/market-data).
-
-Backlog only: no collector, model, recurring task or subscription is enabled by
-this entry.
-
-Suggested first steps:
-
-1. Verify access, timestamps, granularity, retention rights and rate limits for
-   intraday stock and exact-contract option quotes. Collect bid, ask, displayed
-   sizes and quote age across sessions; candles alone do not supply spread data.
-2. Define the prediction horizon, trade size and intended action: open, close or
-   roll. For a rollover, evaluate both option legs and their combined execution
-   cost rather than the spread of just one leg.
-3. Compare absolute spread and spread relative to midpoint, together with quote
-   size, freshness and available execution evidence. Reject stale, crossed or
-   otherwise unusable quotes. A narrow displayed spread is not a guaranteed fill.
-4. Establish a simple time-of-day baseline, then test whether ML improves forecasts
-   using only information available at the decision time. Evaluate chronologically
-   on later sessions and across relevant stocks, contracts and market conditions.
-5. Account for the cost of waiting: the stock and option prices can move while a
-   spread narrows. Define success in terms of useful execution-cost improvement
-   and reliable guidance, with uncertainty and an unavailable-data fallback.
-
-**Architecture:** keep data acquisition and credentials in application services;
-keep training, evaluation and inference in an independent model under
-`models/financials/`. Expose any future predictions through FastAPI to React.
-No replacement of the accepted option-pricing model is implied.
-
-**First deliverable when authorized:** a feasibility / data-coverage assessment and
-an agreed target and evaluation plan before model implementation. This is the next
-item to discuss; implementation still follows the user's step-by-step direction.
+User canceled intraday liquidity-model research and quote-collection plans.
+Close today instead uses the stock midpoint less the held-call midpoint, scaled
+by shares and contracts. Midpoints estimate value; they do not guarantee fills.
+Actual Close execution entries and captured bid/ask snapshots remain unchanged.

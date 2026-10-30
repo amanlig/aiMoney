@@ -20,6 +20,8 @@ export function Dashboard() {
   const [refreshBusy, setRefreshBusy] = useState(false), [pending, setPending] = useState(false);
   const [settings, setSettings] = useState(location.hash === '#profile-settings'), [menu, setMenu] = useState(false);
   const [name, setName] = useState(() => readStored('covered-call-profile-v1', {}).name || 'My profile');
+  const [interestRate, setInterestRate] = useState(() => readStored('covered-call-profile-v1', {}).interestRate || {mode:'treasury'});
+  const rateKey = JSON.stringify(interestRate);
   const [expiring,setExpiring]=useState(false), [lastExpiration,setLastExpiration]=useState(null);
   const [closing, setClosing] = useState(false), [closedReport, setClosedReport] = useState(false), [closedRevision, setClosedRevision] = useState(0);
   const [records, setRecords] = useState(false);
@@ -53,25 +55,25 @@ export function Dashboard() {
     if(!baseline || refreshBusy) return;
     const sequence = ++scenarioGeneration.current, controller = new AbortController();
     scenarioAbort.current?.abort(); scenarioAbort.current = controller;
-    if(Math.abs(price - midpoint(baseline)) < 1e-8) {setAnalysis(baseline); setPending(false); setScenarioStatus('At captured market quotes. Close today stays fixed.'); return;}
+    if(Math.abs(price - midpoint(baseline)) < 1e-8 && JSON.stringify(baseline.inputs.interest_rate?.selection) === rateKey) {setAnalysis(baseline); setPending(false); setScenarioStatus('At captured market quotes. Close today stays fixed.'); return;}
     setPending(true); setScenarioStatus('Updating hypothetical scenario…');
     const timer = setTimeout(async () => {
       try {
-        const d = await api('/api/exit-optimizer/scenario', {signal: controller.signal, body: {...positionRequest(holding), stock_price: price}});
+        const d = await api('/api/exit-optimizer/scenario', {signal: controller.signal, body: {...positionRequest(holding), stock_price: price, interest_rate: interestRate}});
         if(sequence !== scenarioGeneration.current) return;
-        setAnalysis(d); setScenarioStatus('Close today remains fixed at captured quotes. ' + (d.scenario?.note || ''));
+        setAnalysis(d); if(Math.abs(price - midpoint(baseline)) < 1e-8) setBaseline(d); setScenarioStatus('Close today remains fixed at captured quotes. ' + (d.scenario?.note || ''));
       } catch(e) {if(e.name !== 'AbortError' && sequence === scenarioGeneration.current) setScenarioStatus('Chart retains its previous result: ' + e.message);}
       finally {if(sequence === scenarioGeneration.current) setPending(false);}
     }, 180);
     return () => {clearTimeout(timer); controller.abort();};
-  }, [price, baseline, refreshBusy]);
+  }, [price, baseline, refreshBusy, rateKey]);
   async function refresh() {
     if(!holding || refreshRunning.current) return;
     refreshRunning.current = true; const token = ++generation.current;
     scenarioGeneration.current++; scenarioAbort.current?.abort(); setPending(false); setRefreshBusy(true);
     setStatus('Retrieving history and verified option quotes, then simulating…');
     try {
-      const d = await api('/api/exit-optimizer/run', {body: positionRequest(holding)});
+      const d = await api('/api/exit-optimizer/run', {body: {...positionRequest(holding), interest_rate: interestRate}});
       if(token !== generation.current) return;
       setBaseline(d); setAnalysis(d); setPrice(midpoint(d)); setModes({}); setStatus('Quotes refreshed. Chart updated.');
     } catch(e) {if(token === generation.current) setStatus(e.message.replace(/(?:\s*Previous results retained\.)+$/, '') + (baseline ? ' Previous results retained.' : ''));}
@@ -117,7 +119,7 @@ export function Dashboard() {
     setStatus(`${record.symbol} call expired worthless. Realized option P/L: ${record.realized_option_pl_usd==null ? 'Unavailable' : money(record.realized_option_pl_usd)}. ${record.shares_retained} shares retained. Use Transactions → Option Opening Sale for the next call.`);
   }
   const renderedPrice = analysis ? analysis.scenario?.stock_price ?? midpoint(analysis) : null;
-  const unsettled = pending || refreshBusy || (analysis && Math.abs(price - renderedPrice) > 1e-7);
+  const unsettled = pending || refreshBusy || (analysis && JSON.stringify(analysis.inputs.interest_rate?.selection) !== rateKey) || (analysis && Math.abs(price - renderedPrice) > 1e-7);
   const openingReference = analysis?.inputs.opening_reference || {};
   const priorCash = openingReference.prior_realized_option_usd === undefined ? 0 : openingReference.prior_realized_option_usd;
   const realizedCash = Number.isFinite(openingReference.historical_option_net_usd) && Number.isFinite(priorCash) ? openingReference.historical_option_net_usd+priorCash : null;
@@ -138,7 +140,7 @@ export function Dashboard() {
         ${menu ? html`<div className="profile-dropdown" id="profile-dropdown"><button onClick=${() => {setSettings(true); setMenu(false);}}>Settings</button></div>` : null}
       </nav>
     </header>
-    ${settings ? html`<${Profile} onClose=${closeSettings} onName=${setName}/>` : null}
+    ${settings ? html`<${Profile} onClose=${closeSettings} onName=${setName} holding=${holding} onInterestRate=${setInterestRate} valuationDate=${baseline?.inputs.as_of}/>` : null}
     ${closing && holding ? html`<${ClosePosition} holding=${holding} capture=${baseline} onClose=${() => setClosing(false)} onSaved=${holdingClosed}/>` : null}
     ${expiring && holding ? html`<${ExpireWorthless} holding=${holding} onClose=${() => setExpiring(false)} onSaved=${optionExpired}/>` : null}
     ${records ? html`<${Settings} holding=${holding} onClose=${closeTransactions}/>` : null}
@@ -163,8 +165,12 @@ export function Dashboard() {
       </div>
     </div><p id="status" role="status">${status}</p></section>
     ${lastExpiration ? html`<p role="status">${lastExpiration.symbol} call expired worthless. Realized option P/L: ${lastExpiration.realized_option_pl_usd==null ? 'Unavailable' : money(lastExpiration.realized_option_pl_usd)}. ${lastExpiration.shares_retained} shares retained.</p>` : null}
-    <div hidden=${!recommendations}><${Recommendations} holding=${holding} analysis=${analysis} price=${price} modes=${modes} pending=${unsettled}/></div>
+    <div hidden=${!recommendations}><${Recommendations} holding=${holding} analysis=${analysis} price=${price} modes=${modes} pending=${unsettled} interestRate=${interestRate}/></div>
     ${analysis ? html`<section id="results" aria-busy=${refreshBusy || pending}><h2>Close today & top 3 rollovers <small>USD · recorded historical fees included; future trade fees excluded</small></h2>
+      <p className="interest-rate-assumption">Interest rate used: ${Number.isFinite(analysis.result.rate) ? (analysis.result.rate*100).toFixed(4)+'% continuous annual' : '4% — legacy saved analysis'}
+        · ${analysis.inputs.interest_rate?.source || 'Legacy fixed assumption'}
+        ${analysis.inputs.interest_rate?.observed_on ? ` · Observed ${analysis.inputs.interest_rate.observed_on}` : ''}
+        ${analysis.inputs.interest_rate?.warning ? ` · ${analysis.inputs.interest_rate.warning}` : ''}.</p>
       <div id="close-today-summary" aria-labelledby="close-today-title">
         <h3 id="close-today-title">If you close today</h3>
         <p>Estimated total position P/L<strong className=${Number.isFinite(closeProfit) ? closeProfit>=0 ? 'gain' : 'loss' : ''}>${Number.isFinite(closeProfit) ? money(closeProfit) : 'Unavailable — complete transaction history is required'}</strong></p>
@@ -174,7 +180,7 @@ export function Dashboard() {
           <p>+ Realized option cash<strong>${money(realizedCash)}</strong></p>
           <p>− Stock purchase and fees<strong>${money(closeReference.stock_cost_usd ?? closeReference.stock_total_usd)}</strong></p>
         </div>
-        <small>Based on captured bid/ask quotes. Includes recorded stock and option fees; future closing fees excluded. Close today stays fixed when the scenario slider changes.</small>
+        <small>Close today uses captured stock and call midpoints (bid + ask) / 2; execution is not guaranteed. Includes recorded stock and option fees; future closing fees excluded. Close today stays fixed when the scenario slider changes.</small>
       </div>
       <div id="stock-scenario"><div className="scenario-header"><strong>Stock price scenario · USD/share</strong><button disabled=${refreshBusy} onClick=${() => {scenarioGeneration.current++; scenarioAbort.current?.abort(); setPrice(midpoint(baseline)); setAnalysis(baseline); setPending(false);}}>Reset to current quote</button></div>
         <p><strong>${money(price)} / share</strong> ${price >= midpoint(baseline) ? '+' : ''}${money(price - midpoint(baseline))} (${(100 * (price / midpoint(baseline) - 1)).toFixed(1)}%)</p>

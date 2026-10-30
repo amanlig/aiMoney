@@ -1,3 +1,4 @@
+import {Input} from './Input.js';
 import {html,useState,useEffect,useRef} from './ui.js';
 import {api,money,holdingLabel} from './api.js';
 
@@ -15,7 +16,7 @@ export function NewHolding({holding,onClose,onSaved}) {
     <div className="settings-header"><h2 id="new-holding-title">New holding</h2><button type="button" aria-label="Cancel new holding" disabled=${busy} onClick=${onClose}>×</button></div>
     <p>Start with the stock purchase. Add the option opening sale in Transactions when ready. All amounts are USD.</p>
     <form onSubmit=${save}><div className="fields"><label>Account<select disabled=${busy} value=${fields.account} onChange=${e => setFields({...fields,account:e.target.value})}>${['RRSP','TFSA','LIRA'].map(account => html`<option key=${account}>${account}</option>`)}</select></label>
-      ${[['symbol','Ticker','text'],['purchase_date','Purchase date','date'],['shares','Shares purchased','number'],['price_usd','Purchase price (USD/share)','number'],['fees_usd','Purchase fees (USD)','number']].map(([key,label,type]) => html`<label key=${key}>${label}<input required disabled=${busy} type=${type} min=${key==='fees_usd' ? '0' : '0.00000001'} step="any" value=${fields[key]} onChange=${e => setFields({...fields,[key]:key==='symbol' ? e.target.value.toUpperCase() : e.target.value})}/></label>`)}</div>
+      ${[['symbol','Ticker','text'],['purchase_date','Purchase date','date'],['shares','Shares purchased','number'],['price_usd','Purchase price (USD/share)','number'],['fees_usd','Purchase fees (USD)','number']].map(([key,label,type]) => html`<label key=${key}>${label}<${Input} required disabled=${busy} type=${type} min=${key==='fees_usd' ? '0' : '0.00000001'} step="any" value=${fields[key]} onChange=${e => setFields({...fields,[key]:key==='symbol' ? e.target.value.toUpperCase() : e.target.value})}/></label>`)}</div>
       <p>Total stock cost: ${fields.shares!=='' && fields.price_usd!=='' && fields.fees_usd!=='' ? money(Number(fields.shares)*Number(fields.price_usd)+Number(fields.fees_usd)) : '—'}</p>
       <div className="entry-actions"><button disabled=${busy}>Create holding</button><button type="button" disabled=${busy} onClick=${onClose}>Cancel</button></div><p role="status">${status}</p>
     </form>
@@ -40,7 +41,7 @@ export function DeleteHolding({holding,onClose,onDeleted}) {
     <p><strong>${holdingLabel(holding)}</strong></p>
     <p>Delete this holding, its stock purchase allocation, option sales, rollovers, expired-cycle records, saved analyses and recommendations. This cannot be undone.</p>
     ${preview ? html`<p>${preview.opening_sales} opening sales · ${preview.rollovers} rollovers · ${preview.expired_cycles} expired cycles.</p>${preview.shared_purchase ? html`<p>Shared purchase details and history needed by other holdings will be retained.</p>` : null}` : null}
-    <form onSubmit=${remove}><label className="review"><input type="checkbox" required checked=${confirmed} disabled=${busy} onChange=${e => setConfirmed(e.target.checked)}/>Delete this holding and all its associated records.</label>
+    <form onSubmit=${remove}><label className="review"><${Input} type="checkbox" required checked=${confirmed} disabled=${busy} onChange=${e => setConfirmed(e.target.checked)}/>Delete this holding and all its associated records.</label>
       <div className="entry-actions"><button className="danger" disabled=${busy || !preview || !confirmed}>Delete holding and records</button><button type="button" disabled=${busy} onClick=${onClose}>Cancel</button></div><p role="status">${status}</p>
     </form>
   </dialog>`;

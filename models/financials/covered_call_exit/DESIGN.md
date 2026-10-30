@@ -72,9 +72,9 @@ sequenceDiagram
   closes. Bootstrap independent historical daily log returns with replacement.
 - Calibrate each option's implied volatility to its captured midpoint. Future
   buybacks use theoretical value plus captured half-spread. Volatility and
-  absolute spreads remain fixed. Default risk-free rate: 4%.
-- Close today: stock bid proceeds minus original call ask buyback, at captured
-  quotes. This displayed reference remains fixed during slider changes.
+  absolute spreads remain fixed. The application passes its selected continuous
+  annual interest rate explicitly; the standalone model defaults to 4%.
+- Close today: captured stock midpoint proceeds minus held-call midpoint buyback. This displayed reference remains fixed during slider changes.
 - Roll: buy back held call and sell replacement now, then sell stock / buy back
   replacement after 30 trading days. Expiration settlement is handled if earlier.
 - Closing wealth is discounted to today. Gross opening amounts are constant:

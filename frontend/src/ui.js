@@ -2,7 +2,7 @@ import React from 'react';
 import htm from '../vendor/htm.js';
 export const html = htm.bind(React.createElement);
 export {React};
-export const {useState, useEffect, useRef, useMemo, useCallback} = React;
+export const {useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback} = React;
 
 export class ErrorBoundary extends React.Component {
   state = {error: null};

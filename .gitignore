@@ -69,3 +69,5 @@ __pycache__/
 !/tests/test_public_holding_records.py
 
 !/tests/test_rollover_export.mjs
+
+!/tests/test_public_interest_rates.py

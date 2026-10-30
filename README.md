@@ -11,7 +11,7 @@ reference with a past-month chart. The separate USD optimizer provides local sto
 Single-EC2 deployment in us-west-2: [setup and manual user administration](deploy/README.md).
 Email sign-in verifies active PostgreSQL users through single-use codes; there is no public registration.
 See the [authentication architecture](docs/authentication.md).
-Latest progress and next-session notes: [October 23 handoff](docs/progress-2026-10-23.md).
+Latest progress and next-session notes: [October 29 handoff](docs/progress-2026-10-29.md).
 The separate `compose.aws.yaml` adds Caddy HTTPS and login; `compose.yaml`
 continues to run the local application.
 
@@ -157,3 +157,158 @@ later database edits.
 ## Optimizer product direction
 
 See [Reusable optimizer direction and priorities](docs/optimizer-product-direction.md) for the agreed direction toward broader trader needs, consistent outcome accounting, configurable objectives, risk scenarios and validation. Proposed work is distinguished from current features.
+
+## Interest-rate settings
+
+**My profile → Settings → Interest rate** defaults to the U.S. Treasury yield
+matched to the held call's remaining maturity. The app linearly interpolates
+between published tenors, using the nearest tenor outside the published range.
+A manual annual-yield override is available; the preference is saved in this
+browser alongside the profile name. Saving recalculates saved-quote scenarios
+without refreshing brokerage quotes or changing recorded transactions.
+
+Source: [U.S. Treasury Daily Par Yield Curve](https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve),
+retrieved server-side through the [official XML feed](https://home.treasury.gov/treasury-daily-interest-rate-xml-feed).
+Settings shows the source observation date, matched expiry and bracketing tenors.
+Matching uses the saved quote valuation date when reviewing a saved analysis;
+the yield observation is the latest published date, not a historical-rate backtest.
+
+The displayed annual yield is on a semiannual bond-equivalent basis. The app
+passes `rate = 2 * log1p(annual_percent / 200)` explicitly to `model.evaluate()`
+and to slider option repricing. The **same single rate** is used for held and
+replacement calls, discounting and recommendation calculations. This is a
+simplification: par yields proxy a zero rate, and replacement maturities and the
+review horizon are not independently matched to the curve. The standalone
+model retains its 4% default for reproducible offline examples; the application
+supplies the selected rate explicitly.
+
+Curves are cached for one hour. If refresh fails, a cached curve no more than
+seven calendar days old can be used with a notice; otherwise automatic pricing
+is unavailable until Treasury recovers or a manual rate is chosen. There is no
+silent 4% fallback. The analysis snapshot and rollover CSV include the applied
+rate, source and observation date. No API key or new database schema is needed.
+
+## From the UI to the covered-call model
+
+The UI requests analysis, the application gathers market and transaction data,
+and [`model.py`](models/financials/covered_call_exit/model.py) performs the
+calculations. The model makes no network requests or database writes.
+[`App.js`](frontend/src/App.js) handles UI requests,
+[`dashboard_server.py`](dashboard_server.py) exposes the FastAPI endpoints, and
+[`exit_optimizer.py`](exit_optimizer.py) connects the application to the model.
+
+### Refresh data and analyze
+
+The diagram shows the default 600 simulation paths and 30-trading-day horizon.
+Close today uses captured stock and held-call midpoints; midpoint execution is
+not guaranteed. Rollover cash flows retain bid/ask pricing assumptions.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as React UI
+    participant API as FastAPI
+    participant Service as exit_optimizer.py
+    participant DB as Transaction database
+    participant Market as Yahoo / Questrade
+    participant Model as model.py
+    participant Saved as Saved analysis
+
+    User->>UI: Click Refresh data & analyze
+    UI->>API: POST /api/exit-optimizer/run
+    API->>Service: run(position)
+    Service->>DB: Read position and purchase basis
+    DB-->>Service: Shares, contracts, cost basis
+    Service->>Market: Request history and verified option quotes
+    Market-->>Service: Daily closes, stock quote, held call, replacements
+    Service->>DB: Read opening sale and linked rollover history
+    DB-->>Service: Historical premiums, buybacks and recorded fees
+    Service->>Service: Resolve Treasury or manual rate
+    Service->>Model: evaluate(inputs, rate=selected_rate)
+    Model->>Model: Validate position, quotes and history
+
+    alt Invalid inputs
+        Model-->>Service: Validation error
+        Service-->>API: Error
+        API-->>UI: Error response
+        UI-->>User: Show error and retain previous chart
+    else Valid inputs
+        Model->>Model: Calibrate held-call implied volatility
+        Model->>Model: Calculate Close today using midpoints
+        Model->>Model: Sample historical returns into 600 price paths
+        Model->>Model: Evaluate wait-then-close alternatives
+        loop Each eligible replacement call
+            Model->>Model: Calibrate replacement implied volatility
+            Model->>Model: Calculate opening rollover cash flows
+            Model->>Model: Value liquidation after 30 trading days
+            Model->>Model: Handle expiration and assignment when applicable
+            Model->>Model: Discount future cash flows and summarize paths
+            Model->>Model: Calculate conditional worthless-expiry alternative
+        end
+        Model->>Model: Apply recorded transaction accounting
+        Model->>Model: Separate realized, unrealized and total P/L
+        Model->>Model: Select top 3 rollovers by Close-mode profit
+        Model-->>Service: Results, cash flows and assumptions
+        Service->>Saved: Save inputs and results
+        Service-->>API: Analysis
+        API-->>UI: JSON response
+        UI-->>User: Draw Close today and rollover bars
+    end
+```
+
+Market-data failures can also stop the request before the model is called. An
+unsuccessful refresh leaves the previous saved analysis intact. Displayed path
+frequencies describe the simulation, not validated probabilities; early
+assignment is not simulated.
+
+### Change the stock-price scenario
+
+The slider uses saved quotes and current recorded accounting without requesting
+new market data. The original Close today bar stays fixed. The additional slider
+close uses hypothetical stock-bid and call-ask estimates.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as React UI
+    participant API as FastAPI
+    participant Service as exit_optimizer.py
+    participant Model as model.py
+
+    User->>UI: Move stock-price slider
+    UI->>API: POST /api/exit-optimizer/scenario
+    API->>Service: scenario(position, stock_price)
+    Service->>Service: Load saved capture and current accounting
+    Service->>Service: Resolve selected interest rate
+    Service->>Model: stock_price_scenario(saved_inputs, price, rate=selected_rate)
+    Model->>Model: Copy inputs and reprice options using fixed IV and spreads
+    Model-->>Service: Hypothetical inputs
+    Service->>Model: evaluate(inputs, rate=selected_rate, close_at_mid=False)
+    Model-->>Service: Recalculated scenarios
+    Service-->>API: Scenario results
+    API-->>UI: JSON response
+    UI-->>User: Update rollover bars and slider-close bar
+    Note over UI: Original Close today stays fixed at captured midpoints
+```
+
+Resetting the slider to the captured stock midpoint restores the baseline in the
+UI without another scenario request. Scenario calculations do not overwrite the
+saved market capture.
+
+### Model function guide
+
+| Function | Responsibility |
+| --- | --- |
+| `evaluate()` | Validate inputs, simulate outcomes, calculate cash flows and rank candidates |
+| `implied_volatility()` | Find the volatility consistent with a captured option midpoint |
+| `call_price()` | Estimate option value from stock price, strike, remaining time, volatility and interest rate |
+| `stock_price_scenario()` | Create hypothetical quotes without modifying captured inputs |
+| `expire_worthless_outcome()` | Calculate the conditional option-only result with shares retained |
+| `apply_accounting()` / `pnl_segments()` | Incorporate recorded history and separate P/L components |
+
+The **Close / Expire** toggle selects between already-calculated results in the
+UI; it does not rerun the model or change the Close-based candidate ranking.
+Expire assumes the replacement call expires worthless and retains the shares,
+so its option-only P/L is not directly comparable with full-position Close P/L.
+The **AI recommendation** is separate: it interprets the calculated results and
+selected objective rather than running inside `model.py`.

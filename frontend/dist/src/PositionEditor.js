@@ -1,3 +1,4 @@
+import {Input} from './Input.js';
 import {html, useState, useEffect} from './ui.js';
 import {api, holdingLabel} from './api.js';
 
@@ -24,7 +25,7 @@ export function PositionEditor({mode, holding, onCancel, onSaved}) {
       ${mode==='new' ? html`<label>Stock / account<select aria-label="Stock / account" disabled=${!ready || busy} value=${fields.stock} onChange=${e => update('stock',e.target.value)}>${stocks.map((s,i) => html`<option key=${i} value=${i}>${s.account} · ${s.symbol}</option>`)}</select></label>` : html`<p>${holdingLabel(holding)}</p>`}
       ${stock ? html`<p>Recorded shares: ${stock.total_shares} · Already allocated: ${stock.allocated_shares} · Available: ${stock.available_shares}</p>` : null}
       <p>Each position has one opening sale. Allocate at least 100 shares per call; shares allocated to closed positions remain consumed by their recorded sale.</p>
-      <div className="fields">${(mode==='new' ? [['contracts','Call contracts','number'],['shares','Allocated shares','number'],['strike','Call strike (USD)','number'],['expiry','Call expiry','date']] : [['shares','Allocated shares','number']]).map(([key,label,type]) => html`<label key=${key}>${label}<input required type=${type} min="0.00000001" step=${key==='contracts' ? '1' : 'any'} value=${fields[key]} disabled=${busy} onChange=${e => update(key,e.target.value)}/></label>`)}</div>
+      <div className="fields">${(mode==='new' ? [['contracts','Call contracts','number'],['shares','Allocated shares','number'],['strike','Call strike (USD)','number'],['expiry','Call expiry','date']] : [['shares','Allocated shares','number']]).map(([key,label,type]) => html`<label key=${key}>${label}<${Input} required type=${type} min="0.00000001" step=${key==='contracts' ? '1' : 'any'} value=${fields[key]} disabled=${busy} onChange=${e => update(key,e.target.value)}/></label>`)}</div>
       <div className="entry-actions"><button disabled=${!ready || !stock || busy}>${mode==='new' ? 'Create position' : 'Save allocation'}</button><button type="button" disabled=${busy} onClick=${onCancel}>Cancel</button></div><p role="status">${status}</p>
     </form>
   </section>`;

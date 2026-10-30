@@ -11,6 +11,7 @@ from macro_data import fetch as public_fetch
 from questrade_quotes import authorize, fetch, call_id, validate_contract, ImporterError, saved_refresh_token, BrokerNotConfigured
 from market_details import metrics
 import stock_basis
+import interest_rates
 import option_premiums
 import option_rollovers
 import position_history
@@ -189,14 +190,24 @@ def reaccount_capture(capture):
     model.apply_accounting(data, result['result'])
     return result
 
+def with_interest_rate(data, selection=None):
+    import copy
+    result=copy.deepcopy(data)
+    if selection is not None or not result.get('interest_rate'):
+        result['interest_rate']=interest_rates.resolve(selection, result['held']['expiry'], result['as_of'])
+    return result
+
+
 def scenario(request):
     account=request.get('account');symbol=request.get('symbol')
     select_holding(request)
     capture=load_capture(request)
     if capture is None: raise ValueError('Refresh data & analyze this position first.')
-    original=capture['inputs']
-    inputs=model.stock_price_scenario(original,request.get('stock_price'))
-    result=model.evaluate(inputs)
+    original=with_interest_rate(capture['inputs'],request.get('interest_rate'))
+    rate=original['interest_rate']['rate']
+    inputs=model.stock_price_scenario(original,request.get('stock_price'),rate=rate)
+    at_capture=abs(request['stock_price']-(original['stock']['bidPrice']+original['stock']['askPrice'])/2)<1e-8
+    result=model.evaluate(inputs, rate=rate, close_at_mid=at_capture)
     return dict(inputs=inputs,result=result,scenario=dict(stock_price=request['stock_price'],
                 captured_stock_price=(original['stock']['bidPrice']+original['stock']['askPrice'])/2,
                 note='Hypothetical stock price; options repriced at captured implied volatility and spreads. No new market quotes fetched.'))
@@ -251,7 +262,8 @@ def run(request):
               sources=dict(purchase_price='Database stock_cost_basis.price_usd for this account and symbol',history='Yahoo Finance daily closes (unadjusted)',options='Questrade API verified listed standard calls',future_prices='Return bootstrap + midpoint-calibrated constant-volatility call approximation'))
     data['position_id']=p['position_id']
     data['opening_reference']=opening_reference(account,symbol,data['held'],data['shares'],data['contracts'],data['position_id'])
-    result=model.evaluate(data,horizon=horizon)
+    data=with_interest_rate(data,request.get('interest_rate'))
+    result=model.evaluate(data,horizon=horizon,rate=data['interest_rate']['rate'])
     output=dict(inputs=data,result=result)
     target=capture_path(account,symbol,p['position_id'])
     temporary=target.with_suffix('.tmp');temporary.write_text(json.dumps(output,indent=2));temporary.replace(target)

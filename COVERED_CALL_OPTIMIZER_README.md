@@ -220,13 +220,13 @@ results, with earlier realized and combined results shown in Accounting details.
    Model expiration/assignment when the replacement expires before the exit date.
 7. Calculate rollover cash flows: buy back the held call and sell its replacement
    now; then sell retained stock and buy back the replacement after 30 trading days.
-   Future cash flows are discounted to today at an assumed 4% annual rate.
+   Future cash flows are discounted to today at the selected continuously compounded annual interest rate.
 8. Compute total profit and display the top three rollovers, even if negative:
    **Net profit = discounted closing cash + original gross call premium − original
    gross stock purchase cost.**
 
-**Close today cash = stock shares × captured stock bid − call contracts × 100 ×
-captured held-call ask.** This value does not move with the slider.
+**Close today cash = stock shares × captured stock midpoint − call contracts × 100 ×
+captured held-call midpoint.** This value does not move with the slider.
 
 ## Sale floor and assignment
 
@@ -325,3 +325,18 @@ Use **Recommendation** beside **Refresh data & analyze**, select an objective, t
 The app sends the position, original transaction references, chart cash flows, funding estimates and assumptions to OpenAI’s Responses API with API response storage disabled. It does not send credentials or fetch news. Successful results and immutable input snapshots are stored in `data/fx-samples.sqlite3`, table `recommendation_runs`, with prompt version `optimizer-assessment-v1`. Saved assessments are available in the recommendation panel. Input changes mark the displayed assessment stale; a changed quote capture is rejected until the chart is reloaded. The API connection and history are verified with mocked responses; no paid call is made by the test suite.
 
 The assessment separates liquidation profit from conditional option-only P&L and highlights funding needs. Account cash, broker margin, fees, taxes and market-health evidence are unavailable. Read the panel’s Assessment process for the sequence.
+
+Close today uses (bid + ask) / 2 for both legs; midpoint execution is not guaranteed.
+The Close execution form preserves captured bid/ask and manual actual fills.
+Slider Close scenarios and rollover execution assumptions retain bid/ask pricing.
+
+## Interest rate
+
+My profile → Settings offers a maturity-matched U.S. Treasury par-yield default
+and manual annual-yield override. The app converts semiannual bond-equivalent
+yields with `2 * log1p(annual_percent / 200)` and passes the rate explicitly to
+`evaluate()` and `stock_price_scenario()`. A single held-maturity rate is used
+for replacement calls and discounting too; this is a par-yield proxy, not a full
+zero-curve implementation. Source and observation date are retained in snapshots
+and CSV. See [interest-rate settings](README.md#interest-rate-settings) for
+cache, unavailable-data behavior and browser preference storage.

@@ -5,7 +5,7 @@ import math
 import random
 import statistics
 
-VERSION = '1.13'
+VERSION = '1.15'
 
 def month_shift(day, months):
     year, month = divmod(day.year * 12 + day.month - 1 + months, 12)
@@ -41,7 +41,7 @@ def summarize(values, baseline, discount):
     return dict(mean=sum(values)/len(values), p10=values[int(.1*(len(values)-1))],
                 p90=values[int(.9*(len(values)-1))], probability_beating_close=sum(v>baseline for v in values)/len(values))
 
-def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04):
+def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04, close_at_mid=True):
     """Compare discounted USD liquidation wealth at a common trading-day horizon.
 
     Historical daily log returns are sampled with replacement. Future option
@@ -51,7 +51,7 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04):
     """
     if type(horizon) is not int or not 1<=horizon<=63 or type(paths) is not int or not 100<=paths<=5000:
         raise ValueError('Use 1–63 trading days and 100–5000 paths')
-    if not math.isfinite(rate) or not -.1<=rate<=.3:
+    if isinstance(rate,bool) or not isinstance(rate,(int,float)) or not math.isfinite(rate) or not -.1<=rate<=.3:
         raise ValueError('Invalid interest rate')
     today=date.fromisoformat(data['as_of'][:10]); held=data['held']; expiry=date.fromisoformat(held['expiry'])
     n=data['contracts']; shares=data['shares']; strike=held['strike']
@@ -74,13 +74,15 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04):
     stock=data['stock']; spot=(stock['bidPrice']+stock['askPrice'])/2
     spread=(stock['askPrice']-stock['bidPrice'])/2
     held_iv=held.get('scenario_iv') or implied_volatility(spot,strike,(expiry-today).days/365,(held['bidPrice']+held['askPrice'])/2,rate)
-    baseline=shares*stock['bidPrice']-n*100*held['askPrice']
+    close_stock=spot if close_at_mid else stock['bidPrice']
+    close_call=(held['bidPrice']+held['askPrice'])/2 if close_at_mid else held['askPrice']
+    baseline=shares*close_stock-n*100*close_call
     rng=random.Random(seed); trajectories=[]
     for _ in range(paths):
         s=spot; path=[]
         for day in range(horizon): s*=math.exp(rng.choice(returns)); path.append(s)
         trajectories.append(path)
-    rows=[dict(strategy='Close now',days=0,mean=baseline,p10=baseline,p90=baseline,probability_beating_close=0,improvement=0, cash_flows=dict(stock_sale=shares*stock['bidPrice'],option_purchase=-n*100*held['askPrice'],option_sale=0),eligible=stock['bidPrice']>=floor,sale_floor_pass_rate=float(stock['bidPrice']>=floor))]
+    rows=[dict(strategy='Close now',days=0,mean=baseline,p10=baseline,p90=baseline,probability_beating_close=0,improvement=0, cash_flows=dict(stock_sale=shares*close_stock,option_purchase=-n*100*close_call,option_sale=0),eligible=close_stock>=floor,sale_floor_pass_rate=float(close_stock>=floor))]
     def liquidation(path, days, k, exp, iv, halfspread):
         expiry_steps=max(1,math.ceil((exp-today).days*252/365))
         if expiry_steps<=days:
@@ -130,13 +132,13 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04):
     top_choices=sorted((row for row in rows if row['strategy']=='Roll then close' and row['net_profit_usd'] is not None),
                        key=lambda row:row['net_profit_usd'],reverse=True)[:3]
 
-    result=dict(version=VERSION,top_choices=top_choices,profit_reference_available=known,
+    result=dict(version=VERSION,rate=rate,close_pricing='midpoint' if close_at_mid else 'bid_ask',top_choices=top_choices,profit_reference_available=known,
                 search=dict(minimum_strike=max(1.2*purchase,spot),minimum_exclusive=spot>=1.2*purchase,maximum_strike=None,first_expiry=(today+timedelta(days=1)).isoformat(),last_expiry=month_shift(expiry,12).isoformat()),initial_purchase_price_usd=purchase,minimum_stock_sale_price_usd=floor,
                 constraint='Rank the three best net profits regardless of profit sign or sale-floor eligibility. Sale-floor flags remain visible; strike/expiry and quote-quality filters remain enforced. Future market prices are not guaranteed.',rows=rows,baseline=baseline,excluded=excluded,paths=paths,seed=seed,
                 history_count=len(closes),history_start=history[0]['date'],history_end=history[-1]['date'],
                 realized_volatility=statistics.stdev(returns)*math.sqrt(252),held_implied_volatility=held_iv,
                 objective='Highest simulated mean discounted USD liquidation wealth; not a validated profit forecast',
-                assumptions=['Three-month daily-return bootstrap; historical drift retained', 'Constant calibrated volatility; European call approximation; no dividends or early assignment',
+                assumptions=[f'Annual continuously compounded interest rate: {100*rate:.6f}%; same rate for all option pricing and discounting', ('Close today uses captured stock and call midpoints; midpoint execution is not guaranteed' if close_at_mid else 'Slider close uses scenario stock bid and call ask'), 'Three-month daily-return bootstrap; historical drift retained', 'Constant calibrated volatility; European call approximation; no dividends or early assignment',
                 "Today's spreads held constant; future execution fees excluded; recorded historical fees included; no taxes; USD retained", 'Rollover credit is cash received, not profit; remaining option liability is deducted at the common horizon',
                 'No historical option-chain backtest; probabilities describe model paths only'])
     return apply_accounting(data,result)
@@ -206,6 +208,27 @@ def rollover_funding(data, replacement):
 
 def apply_accounting(data, result):
     """Update historical accounting without repricing saved future cash flows."""
+    # Upgrade the close reference in saved captures without changing their quotes
+    # or repricing future rollover cash flows. Slider closes retain bid/ask pricing.
+    if result.get('close_pricing', 'midpoint') == 'midpoint' and all(
+            key in data for key in ('stock', 'held', 'shares', 'contracts')):
+        stock_mid=(data['stock']['bidPrice']+data['stock']['askPrice'])/2
+        call_mid=(data['held']['bidPrice']+data['held']['askPrice'])/2
+        cash=data['shares']*stock_mid-data['contracts']*100*call_mid
+        changed=abs(result.get('baseline',cash)-cash)>1e-8
+        result['baseline']=cash
+        result['close_pricing']='midpoint'
+        for row in result.get('rows', []):
+            if row['strategy']=='Close now':
+                row.update(mean=cash,p10=cash,p90=cash,
+                    cash_flows=dict(stock_sale=data['shares']*stock_mid,
+                        option_purchase=-data['contracts']*100*call_mid,option_sale=0),
+                    eligible=stock_mid>=result['minimum_stock_sale_price_usd'],
+                    sale_floor_pass_rate=float(stock_mid>=result['minimum_stock_sale_price_usd']))
+            row['improvement']=row['mean']-cash
+            if changed and row['strategy']!='Close now':
+                # Saved aggregates cannot recover path counts at a new threshold.
+                row['probability_beating_close']=None
     reference=data.get('opening_reference',{})
     cost=reference.get('stock_cost_usd',reference.get('stock_total_usd'))
     net=reference.get('historical_option_net_usd',reference.get('option_total_usd'))

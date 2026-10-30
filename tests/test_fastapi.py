@@ -98,6 +98,24 @@ class ApiContracts(unittest.TestCase):
         finally:
             server.ROLL_REFRESH_LOCK.release()
 
+    def test_interest_rate_source_and_validated_override(self):
+        rate=dict(rate=.05,annual_percent=5.063,source='U.S. Treasury Daily Par Yield Curve',observed_on='2026-10-29')
+        with patch.object(server.interest_rates,'resolve',return_value=rate) as resolve:
+            response=self.client.get('/api/interest-rate?expiry=2028-01-21')
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.json(),rate)
+            resolve.assert_called_once_with({'mode':'treasury'},'2028-01-21')
+        with patch.object(server.interest_rates,'resolve',side_effect=server.interest_rates.RateUnavailable('Treasury unavailable')):
+            self.assertEqual(self.client.get('/api/interest-rate?expiry=2028-01-21').status_code,503)
+        body=dict(account='RRSP',symbol='TEST',stock_price=25,interest_rate={'mode':'manual','annual_percent':5.5})
+        with patch.object(server.exit_optimizer,'scenario',return_value={}) as scenario:
+            self.assertEqual(self.post('/api/exit-optimizer/scenario',body).status_code,200)
+            scenario.assert_called_once_with(body)
+        for bad in [True,26,-6,'5',float('inf')]:
+            body['interest_rate']['annual_percent']=bad
+            if bad==float('inf'):continue
+            self.assertEqual(self.post('/api/exit-optimizer/scenario',body).status_code,422)
+
     def test_basis_roundtrip_uses_sqlite_service(self):
         path = self.root/'data/test.sqlite3'
         original_save = server.stock_basis.save_many

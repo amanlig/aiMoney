@@ -43,7 +43,7 @@ def prepare():
         if hashlib.sha256(files[source]).hexdigest()!=provenance[key]:
             raise ValueError('Chart is stale; regenerate with examples/render_aimoney_chart.py before publishing.')
     files['manifest.json'] = (json.dumps({
-        'model_version': '1.13', 'data': 'synthetic only',
+        'model_version': '1.15', 'data': 'synthetic only',
         'files': {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
     }, indent=2)+'\n').encode()
     assert set(files) == set(FILES)

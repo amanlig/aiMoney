@@ -141,3 +141,14 @@ recorded amount. Unrealized, current-cycle and total P/L remain null until the
 active history is complete; neither a missing opening nor a prospective slider
 scenario realizes a gain. Expired premiums are attributed through retained-share
 sources once and are excluded from the active cycle's opening cash flows.
+
+## Application interest-rate selection
+
+The independent model retains a 4% default for offline examples. aiMoney passes
+`rate=` explicitly to `evaluate()` and `stock_price_scenario()`: by default, a
+Treasury par yield interpolated to the held call's remaining maturity and
+converted from semiannual bond-equivalent yield to continuous compounding.
+Profile → Settings also permits a manual annual-yield override. The same scalar
+rate is used for all contracts and discounting; this is not a full zero curve.
+Treasury retrieval, caching, provenance and browser preferences live in the
+application, outside this model package.

@@ -42,8 +42,9 @@ def capture():
     return dict(inputs=dict(account='RRSP', symbol='TEST', captured_at='2026-10-21T12:00:00Z',
         stock=dict(bidPrice=22, askPrice=24, bidSize=500, askSize=400),
         held=dict(bidPrice=.9, askPrice=1, bidSize=4, askSize=5), candidates=[{}], sources={},
+        interest_rate=dict(rate=.04,annual_percent=4.040268,selection={'mode':'treasury'},source='U.S. Treasury Daily Par Yield Curve',observed_on='2026-10-29'),
         opening_reference=dict(stock_total_usd=2000, stock_price_usd=20, option_total_usd=200, option_price_usd=2)),
-        result=dict(rows=[today, *rolls], top_choices=rolls, baseline=2100,
+        result=dict(rate=.04,rows=[today, *rolls], top_choices=rolls, baseline=2100,
             minimum_stock_sale_price_usd=22, initial_purchase_price_usd=20,
             history_count=60, history_start='2026-07-20', history_end='2026-10-20', excluded=0))
 
@@ -90,6 +91,68 @@ class ReactDashboardTests(unittest.TestCase):
         self.page.on('request', lambda request: self.requests.append(request.url))
         self.context.route('**/api/**', self.api)
 
+    def test_date_keyboard_year_month_day_and_calendar(self):
+        from playwright.sync_api import expect
+        self.open_dashboard()
+        self.page.get_by_role('button', name='Transactions', exact=True).click()
+        field=self.page.get_by_label('RRSP TEST Purchase date',exact=True)
+        field.fill('')
+        field.focus()
+        self.page.keyboard.type('2026')
+        self.page.keyboard.press('Tab')
+        self.assertEqual(field.evaluate('(el) => el.selectionStart'),5)
+        self.page.keyboard.type('10')
+        self.page.keyboard.press('Tab')
+        self.assertEqual(field.evaluate('(el) => el.selectionStart'),8)
+        self.page.keyboard.type('29')
+        expect(field).to_have_value('2026-10-29')
+        self.assertTrue(field.evaluate('(el) => el.checkValidity()'))
+        self.page.keyboard.press('Shift+Tab')
+        self.assertEqual(field.evaluate('(el) => el.selectionStart'),5)
+        self.page.keyboard.type('11')
+        expect(field).to_have_value('2026-11-29')
+        self.page.keyboard.press('Tab')
+        self.page.keyboard.press('Tab')
+        self.assertFalse(field.evaluate('(el) => el === document.activeElement'))
+        field.fill('2026-02-30')
+        self.assertFalse(field.evaluate('(el) => el.checkValidity()'), field.evaluate('(el) => ({value:el.value,message:el.validationMessage})'))
+        field.fill('2028-02-29')
+        self.assertTrue(field.evaluate('(el) => el.checkValidity()'))
+        picker=field.locator('..').locator('.date-calendar')
+        picker.evaluate("""el => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'2026-12-31');
+            el.dispatchEvent(new Event('input',{bubbles:true}));
+            el.dispatchEvent(new Event('change',{bubbles:true}));
+        }""")
+        expect(field).to_have_value('2026-12-31')
+        self.assertEqual(self.errors,[])
+
+    def test_profile_interest_rate_default_override_and_saved_preference(self):
+        from playwright.sync_api import expect
+        self.open_dashboard()
+        self.page.get_by_role('button',name='My profile').click()
+        self.page.get_by_role('button',name='Settings',exact=True).click()
+        modal=self.page.get_by_role('dialog',name='Profile',exact=True)
+        source=modal.get_by_label('Interest rate source',exact=True)
+        expect(source).to_have_value('treasury')
+        modal.get_by_text('Treasury observation:',exact=False).wait_for()
+        expect(modal.get_by_label('Annual interest yield (%)',exact=True)).to_have_attribute('readonly','')
+        source.select_option('manual')
+        modal.get_by_label('Annual interest yield (%)',exact=True).fill('5.5')
+        modal.get_by_role('button',name='Save profile',exact=True).click()
+        self.page.get_by_text('Manual override',exact=False).wait_for()
+        sent=[body for path,body in self.posts if path=='exit-optimizer/scenario'][-1]
+        self.assertEqual(sent['interest_rate'],{'mode':'manual','annual_percent':5.5})
+        stored=self.page.evaluate("JSON.parse(localStorage.getItem('covered-call-profile-v1'))")
+        self.assertEqual(stored['interestRate'],sent['interest_rate'])
+        self.page.get_by_role('button',name='My profile').click()
+        self.page.get_by_role('button',name='Settings',exact=True).click()
+        expect(self.page.get_by_label('Annual interest yield (%)',exact=True)).to_have_value('5.5')
+        self.page.get_by_label('Interest rate source',exact=True).select_option('treasury')
+        self.page.get_by_role('button',name='Save profile',exact=True).click()
+        self.page.get_by_text('U.S. Treasury Daily Par Yield Curve',exact=False).wait_for()
+        self.assertEqual([body for path,body in self.posts if path=='exit-optimizer/scenario'][-1]['interest_rate'],{'mode':'treasury'})
+
     def test_download_all_rollovers_csv(self):
         import csv
         data = capture()
@@ -125,6 +188,13 @@ class ReactDashboardTests(unittest.TestCase):
             self.posts.append((path, body))
             if path.startswith('exit-optimizer/'):
                 data = capture()
+                if body.get('interest_rate'):
+                    data['inputs']['interest_rate']['selection']=body['interest_rate']
+                    if body['interest_rate']['mode']=='manual':
+                        import math
+                        percent=body['interest_rate']['annual_percent']
+                        data['inputs']['interest_rate'].update(source='Manual override',observed_on=None,annual_percent=percent,rate=2*math.log1p(percent/200))
+                        data['result']['rate']=2*math.log1p(percent/200)
                 if path.endswith('scenario'):
                     data['scenario'] = dict(stock_price=body['stock_price'], note='Synthetic scenario.')
                     # A changed model baseline must never replace the captured one.
@@ -150,6 +220,7 @@ class ReactDashboardTests(unittest.TestCase):
         holding = dict(account='RRSP', symbol='TEST', shares=100, position_key='test-position', call_strike_native_currency=25, call_expiry='2026-11-20', call_contracts=1)
         values = {
             'auth/session': {'enabled': False},
+            'interest-rate': dict(rate=.04,annual_percent=4.040268,selection={'mode':'treasury'},source='U.S. Treasury Daily Par Yield Curve',observed_on='2026-10-29',expiry='2026-11-20',lower_tenor_years=1/12,upper_tenor_years=1/12),
             'exit-optimizer/holdings': {'holdings': [] if self.closed_records else [holding]},
             'closed-holdings': {'holdings': self.closed_records},
             'option-rollovers': {'rollovers': self.rollover_records},
@@ -187,7 +258,7 @@ class ReactDashboardTests(unittest.TestCase):
                 refresh.assert_not_called()
                 self.page.get_by_role('slider').fill('25')
                 self.page.get_by_text('Close today remains fixed at captured quotes. Real FastAPI round trip.').wait_for()
-                scenario.assert_called_once_with(dict(account='RRSP', symbol='TEST', stock_price=25))
+                scenario.assert_called_once_with(dict(account='RRSP', symbol='TEST', stock_price=25,interest_rate={'mode':'treasury'}))
                 self.assertIn('Net cash US$2,100.00', self.page.locator('#chart g[role="group"]').first.get_attribute('aria-label'))
 
     def test_local_render_scenario_baseline_expire_and_explicit_actions(self):
@@ -280,6 +351,9 @@ class ReactDashboardTests(unittest.TestCase):
         self.assertEqual(payload['sale_price_usd'], 2.5)
         self.assertEqual(payload['fees_usd'], 1)
         self.assertTrue(payload['reviewed'])
+        self.assertEqual(form.get_by_label('Settlement date', exact=True).input_value(), '')
+        self.assertEqual(form.get_by_label('Total rollover fees (USD)', exact=True).input_value(), '')
+        self.assertFalse(form.get_by_role('checkbox').is_checked())
 
     def test_hover_details_show_only_the_selected_segment(self):
         self.open_dashboard()

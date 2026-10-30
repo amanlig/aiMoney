@@ -29,6 +29,7 @@ import holding_records
 import transaction_report
 import stock_basis
 import exit_optimizer
+import interest_rates
 import optimizer_recommendations
 import optimizer_assessments
 from macro_data import usd_cad
@@ -97,17 +98,26 @@ class VerifySignInRequest(BaseModel):
     remember: bool = False
 
 
+class InterestRateSelection(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    mode: Literal['treasury', 'manual'] = 'treasury'
+    annual_percent: float | None = Field(default=None, ge=-5, le=25, allow_inf_nan=False)
+
+
 class RunRequest(PositionRequest):
     account: Literal['LIRA', 'RRSP', 'TFSA'] = 'RRSP'
     symbol: str = 'ASTS'
     horizon: int = Field(default=30, ge=1, le=63)
+    interest_rate: InterestRateSelection | None = None
 
 
 class ScenarioRequest(PositionRequest):
+    interest_rate: InterestRateSelection | None = None
     stock_price: float = Field(gt=0, allow_inf_nan=False)
 
 
 class RecommendationRequest(ScenarioRequest):
+    expected_rate: float | None = Field(default=None, ge=-.1, le=.3, allow_inf_nan=False)
     goal: Literal['free_cash', 'reduce_risk', 'keep_exposure', 'compare']
     captured_at: str = Field(min_length=1, max_length=100)
     modes: dict[str, Literal['close', 'expire']] = Field(default_factory=dict)
@@ -284,6 +294,10 @@ def create_app(*, refresh_macro=True, auth_enabled=None, auth_service=None):
         issues = [dict(field='.'.join(map(str, item['loc'])), message=item['msg']) for item in error.errors()]
         return JSONResponse({'error': 'Invalid request.', 'issues': issues}, status_code=422)
 
+    @app.exception_handler(interest_rates.RateUnavailable)
+    async def rate_unavailable(request, error):
+        return JSONResponse({'error': str(error)}, status_code=503)
+
     @app.exception_handler(ValueError)
     @app.exception_handler(TypeError)
     @app.exception_handler(KeyError)
@@ -312,6 +326,13 @@ def create_app(*, refresh_macro=True, auth_enabled=None, auth_service=None):
             return {'accounts': [account_widget(json.loads((ROOT/'data'/name).read_text())) for name in INPUTS.values()]}
         except (OSError, ValueError, KeyError, TypeError):
             raise HTTPException(503, 'Saved profile holdings unavailable.') from None
+
+    @app.get('/api/interest-rate')
+    def interest_rate(expiry: str | None = None, valuation_date: str | None = None):
+        if not expiry:
+            return dict(source='U.S. Treasury Daily Par Yield Curve', source_url=interest_rates.SOURCE_URL,
+                        rate=None, note='Select a holding with an unexpired call to preview the maturity-matched default.')
+        return interest_rates.resolve({'mode':'treasury'}, expiry, valuation_date) if valuation_date else interest_rates.resolve({'mode':'treasury'}, expiry)
 
     @app.get('/api/exit-optimizer/holdings')
     def holdings():

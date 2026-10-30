@@ -1,3 +1,4 @@
+import {Input} from './Input.js';
 import {html, useState, useEffect, useRef} from './ui.js';
 import {api, money, holdingLabel} from './api.js';
 
@@ -27,12 +28,12 @@ export function ClosePosition({holding, capture, onClose, onSaved}) {
     <p><strong>${holdingLabel(holding)}</strong><br/>Sell all ${holding.shares} shares and buy back all ${holding.call_contracts} call contracts.</p>
     <p>Record completed trades from your confirmation. Saving moves this holding to Closed holdings and removes it from the active dropdown.</p>
     <fieldset id="close-captured-quotes"><legend>Captured Questrade quotes · USD/share</legend>
-      ${quotes ? html`<p>Captured <time dateTime=${quotes.captured_at}>${quotes.captured_at}</time>. Saved market quotes; actual execution prices are entered below.</p><div className="fields">${[['Stock', quotes.stock], ['Held call', quotes.held]].flatMap(([name, quote]) => ['bid', 'ask'].map(side => html`<label key=${name+side}>${name} ${side} (USD/share)<input type="number" step="any" readOnly value=${Number.isFinite(quote?.[side+'Price']) ? quote[side+'Price'] : ''} placeholder="Unavailable"/></label>`))}</div>
+      ${quotes ? html`<p>Captured <time dateTime=${quotes.captured_at}>${quotes.captured_at}</time>. Saved market quotes; actual execution prices are entered below.</p><div className="fields">${[['Stock', quotes.stock], ['Held call', quotes.held]].flatMap(([name, quote]) => ['bid', 'ask'].map(side => html`<label key=${name+side}>${name} ${side} (USD/share)<${Input} type="number" step="any" readOnly value=${Number.isFinite(quote?.[side+'Price']) ? quote[side+'Price'] : ''} placeholder="Unavailable"/></label>`))}</div>
       <p>${[['Stock',quotes.stock],['Held call',quotes.held]].map(([name,q]) => `${name}: bid size ${q?.bidSize ?? 'unavailable'}, ask size ${q?.askSize ?? 'unavailable'}; delay ${q?.delay == null ? 'unavailable' : q.delay + ' seconds'}`).join(' · ')}</p>` : html`<p>No saved quote capture is available. The close can still be recorded; quote comparisons will be unavailable.</p>`}
     </fieldset>
-    <form onSubmit=${save}><div className="fields">${[['close_date', 'Close date', 'date'], ['stock_price_usd', 'Stock sale price (USD/share)', 'number'], ['buyback_price_usd', 'Call buyback price (USD/share)', 'number'], ['fees_usd', 'Total closing fees (USD)', 'number']].map(([key, label, type]) => html`<label key=${key}>${label}<input required disabled=${busy} type=${type} step="any" min=${key === 'stock_price_usd' ? '0.00000001' : '0'} value=${fields[key]} onChange=${e => {setFields(old => ({...old, [key]: e.target.value})); setReviewed(false);}}/></label>`)}</div>
+    <form onSubmit=${save}><div className="fields">${[['close_date', 'Close date', 'date'], ['stock_price_usd', 'Stock sale price (USD/share)', 'number'], ['buyback_price_usd', 'Call buyback price (USD/share)', 'number'], ['fees_usd', 'Total closing fees (USD)', 'number']].map(([key, label, type]) => html`<label key=${key}>${label}<${Input} required disabled=${busy} type=${type} step="any" min=${key === 'stock_price_usd' ? '0.00000001' : '0'} value=${fields[key]} onChange=${e => {setFields(old => ({...old, [key]: e.target.value})); setReviewed(false);}}/></label>`)}</div>
       <p>${complete ? `Stock sale: ${money(stockSale)} · Call buyback: ${money(buyback)} · Net closing cash: ${money(cash)}` : 'Enter the actual sale and buyback prices to see closing cash.'}</p>
-      <label className="review"><input type="checkbox" required disabled=${busy} checked=${reviewed} onChange=${e => setReviewed(e.target.checked)}/>I verified both trades and the full position is closed.</label>
+      <label className="review"><${Input} type="checkbox" required disabled=${busy} checked=${reviewed} onChange=${e => setReviewed(e.target.checked)}/>I verified both trades and the full position is closed.</label>
       <div className="entry-actions"><button disabled=${busy}>Record close</button><button type="button" disabled=${busy} onClick=${onClose}>Cancel</button></div>
       <p role="status">${status}</p>
     </form>
