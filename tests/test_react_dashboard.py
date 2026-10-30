@@ -91,6 +91,28 @@ class ReactDashboardTests(unittest.TestCase):
         self.page.on('request', lambda request: self.requests.append(request.url))
         self.context.route('**/api/**', self.api)
 
+    def test_owned_price_controls_left_and_visible_without_analysis(self):
+        self.open_dashboard()
+        owned=self.page.locator('#owned-position-controls')
+        replacement=self.page.locator('#rollover-criteria')
+        left,right=owned.bounding_box(),replacement.bounding_box()
+        self.assertLess(left['x'],right['x'])
+        self.assertAlmostEqual(left['y'],right['y'],delta=2)
+        self.assertTrue(self.page.get_by_role('slider').is_enabled())
+        self.page.screenshot(path='/app/reports/owned-replacement-controls-desktop.png',full_page=True)
+        self.page.set_viewport_size(dict(width=390,height=844))
+        self.assertLess(owned.bounding_box()['y'],replacement.bounding_box()['y'])
+        self.assertTrue(self.page.get_by_role('slider').is_visible())
+        self.page.screenshot(path='/app/reports/owned-replacement-controls-mobile.png',full_page=True)
+        self.context.route('**/api/exit-optimizer/capture?*',lambda route:route.fulfill(status=404,json={'error':'No saved analysis.'}))
+        self.page.reload()
+        self.page.get_by_text('No saved analysis for this holding. Refresh data & analyze to begin.',exact=True).wait_for()
+        self.assertTrue(self.page.get_by_role('slider').is_visible())
+        self.assertFalse(self.page.get_by_role('slider').is_enabled())
+        self.assertFalse(self.page.get_by_role('button',name='Reset to current quote').is_enabled())
+        self.assertEqual(self.posts,[])
+        self.assertEqual(self.errors,[])
+
     def test_date_keyboard_year_month_day_and_calendar(self):
         from playwright.sync_api import expect
         self.open_dashboard()
@@ -127,6 +149,108 @@ class ReactDashboardTests(unittest.TestCase):
         expect(field).to_have_value('2026-12-31')
         self.assertEqual(self.errors,[])
 
+    def test_rollovers_exceeding_buying_power_have_transparent_hatching_without_reranking(self):
+        from playwright.sync_api import expect
+        data=capture()
+        for row,debit in zip(data['result']['top_choices'],[20,50,0]):
+            row['roll_funding']['net_debit_usd']=debit
+            row['expire_worthless']['roll_funding']['net_debit_usd']=debit
+        self.context.route('**/api/exit-optimizer/capture?*',lambda route:route.fulfill(json=data))
+        self.open_dashboard()
+        rolls=self.page.locator('#chart g[data-rollover="true"]')
+        expect(rolls).to_have_count(3)
+        expect(self.page.locator('#chart .buying-power-exceeded')).to_have_count(2)
+        overlay=self.page.locator('[data-buying-power-overlay]')
+        expect(overlay).to_have_count(1)
+        self.assertEqual(overlay.get_attribute('pointer-events'),'none')
+        self.assertEqual(overlay.get_attribute('fill'),'url(#buying-power-hatch)')
+        self.assertEqual(overlay.get_attribute('y'),'40')
+        self.assertEqual(overlay.get_attribute('height'),'495')
+        self.page.screenshot(path='/app/reports/buying-power-hatched.png',full_page=True)
+        def settings():
+            self.page.get_by_role('button',name='My profile').click()
+            self.page.get_by_role('button',name='Settings',exact=True).click()
+            return self.page.get_by_role('dialog',name='Profile',exact=True)
+        modal=settings()
+        modal.get_by_label('Funds currency',exact=True).select_option('CAD')
+        modal.get_by_label('Buying power (CAD)',exact=True).fill('9999')
+        modal.get_by_role('button',name='Save profile',exact=True).click()
+        expect(self.page.locator('#chart .buying-power-exceeded')).to_have_count(2)
+        self.assertEqual(rolls.evaluate_all('(els)=>els.map(el=>el.dataset.buyingPower)'),['exceeds','exceeds','within'])
+        modal=settings()
+        modal.get_by_label('Cash available (USD)',exact=True).fill('100000')
+        modal.get_by_label('Buying power (USD)',exact=True).fill('20')
+        modal.get_by_role('button',name='Save profile',exact=True).click()
+        expect(self.page.locator('#chart .buying-power-exceeded')).to_have_count(1)
+        self.assertEqual(rolls.evaluate_all('(els)=>els.map(el=>el.dataset.buyingPower)'),['within','exceeds','within'])
+        blocked=rolls.nth(1)
+        self.assertIn('Roll to $27',blocked.text_content())
+        self.assertIn('Shortfall: US$30.00',blocked.text_content())
+        self.assertIn('Exceeds entered USD buying power',blocked.get_by_role('group').get_attribute('aria-label'))
+        self.assertEqual(blocked.locator('rect').first.evaluate('(el)=>getComputedStyle(el).fill'),'rgb(38, 133, 108)')
+        self.assertEqual(rolls.nth(0).locator('rect').first.evaluate('(el)=>getComputedStyle(el).fill'),'rgb(38, 133, 108)')
+        self.assertEqual(blocked.locator('rect[data-pnl="total"]').get_attribute('data-value'),'500')
+        self.assertFalse('buying-power-exceeded' in (self.page.locator('#chart g[role="group"]').first.locator('..').get_attribute('class') or ''))
+        blocked.get_by_role('radio',name='Expire',exact=True).check()
+        expect(self.page.locator('#chart .buying-power-exceeded')).to_have_count(1)
+        modal=settings();modal.get_by_label('Buying power (USD)',exact=True).fill('50')
+        modal.get_by_role('button',name='Save profile',exact=True).click()
+        expect(self.page.locator('#chart .buying-power-exceeded')).to_have_count(0)
+        self.assertEqual(rolls.count(),3)
+        self.assertEqual(self.posts,[])
+        results=self.page.evaluate("""async () => {
+            const {buyingPowerCheck}=await import('/frontend/dist/src/BuyingPower.js');
+            const row=n=>({roll_funding:{net_debit_usd:n}});
+            return [buyingPowerCheck(row(0),{RRSP:{USD:{buyingPower:0}}},'RRSP'),
+                buyingPowerCheck(row(1),{RRSP:{USD:{buyingPower:0}}},'RRSP'),
+                buyingPowerCheck(row(20.000000000000004),{RRSP:{USD:{buyingPower:20}}},'RRSP'),
+                buyingPowerCheck(row(10),{TFSA:{USD:{buyingPower:100}}},'RRSP')];
+        }""")
+        self.assertEqual([r['status'] for r in results],['within','exceeds','within','exceeds'])
+
+    def test_profile_cash_and_buying_power_are_account_currency_specific(self):
+        from playwright.sync_api import expect
+        self.open_dashboard()
+        def settings():
+            self.page.get_by_role('button',name='My profile').click()
+            self.page.get_by_role('button',name='Settings',exact=True).click()
+            return self.page.get_by_role('dialog',name='Profile',exact=True)
+        modal=settings()
+        expect(modal.get_by_label('Cash available (USD)',exact=True)).to_have_value('0')
+        expect(modal.get_by_label('Buying power (USD)',exact=True)).to_have_value('0')
+        modal.get_by_label('Cash available (USD)',exact=True).fill('1250.50')
+        modal.get_by_label('Buying power (USD)',exact=True).fill('4500')
+        modal.get_by_label('Funds currency',exact=True).select_option('CAD')
+        expect(modal.get_by_label('Cash available (CAD)',exact=True)).to_have_value('0')
+        modal.get_by_label('Cash available (CAD)',exact=True).fill('0')
+        modal.get_by_label('Buying power (CAD)',exact=True).fill('6000')
+        modal.get_by_label('Funds account',exact=True).select_option('TFSA')
+        expect(modal.get_by_label('Buying power (CAD)',exact=True)).to_have_value('0')
+        modal.get_by_label('Cash available (CAD)',exact=True).fill('150')
+        modal.get_by_role('button',name='Save profile',exact=True).click()
+        saved=self.page.evaluate("JSON.parse(localStorage.getItem('covered-call-profile-v1'))")
+        self.assertEqual(saved['accountFunds']['RRSP']['USD']['cashAvailable'],1250.5)
+        self.assertEqual(saved['accountFunds']['RRSP']['USD']['buyingPower'],4500)
+        self.assertEqual(saved['accountFunds']['RRSP']['CAD']['cashAvailable'],0)
+        self.assertEqual(saved['accountFunds']['TFSA']['CAD']['cashAvailable'],150)
+        self.assertEqual(saved['accountFunds']['TFSA']['CAD']['buyingPower'],0)
+        updated=saved['accountFunds']['RRSP']['USD']['updatedAt']
+        self.assertTrue(updated)
+        self.assertEqual(self.posts,[])
+        self.page.reload();self.page.get_by_text('Saved quotes loaded. Refresh for current prices.').wait_for()
+        modal=settings()
+        expect(modal.get_by_label('Cash available (USD)',exact=True)).to_have_value('1250.5')
+        expect(modal.get_by_label('Buying power (USD)',exact=True)).to_have_value('4500')
+        modal.get_by_role('button',name='Cancel',exact=True).click()
+        modal=settings();modal.get_by_role('button',name='Save profile',exact=True).click()
+        unchanged=self.page.evaluate("JSON.parse(localStorage.getItem('covered-call-profile-v1'))")
+        self.assertEqual(unchanged['accountFunds']['RRSP']['USD']['updatedAt'],updated)
+        modal=settings();modal.get_by_label('Cash available (USD)',exact=True).fill('')
+        modal.get_by_role('button',name='Save profile',exact=True).click()
+        cleared=self.page.evaluate("JSON.parse(localStorage.getItem('covered-call-profile-v1'))")
+        self.assertEqual(cleared['accountFunds']['RRSP']['USD']['cashAvailable'],0)
+        self.assertEqual(cleared['accountFunds']['RRSP']['USD']['buyingPower'],4500)
+
     def test_profile_interest_rate_default_override_and_saved_preference(self):
         from playwright.sync_api import expect
         self.open_dashboard()
@@ -152,6 +276,60 @@ class ReactDashboardTests(unittest.TestCase):
         self.page.get_by_role('button',name='Save profile',exact=True).click()
         self.page.get_by_text('U.S. Treasury Daily Par Yield Curve',exact=False).wait_for()
         self.assertEqual([body for path,body in self.posts if path=='exit-optimizer/scenario'][-1]['interest_rate'],{'mode':'treasury'})
+
+    def test_main_page_criteria_wait_for_refresh_and_persist(self):
+        from playwright.sync_api import expect
+        self.open_dashboard()
+        panel=self.page.locator('#rollover-criteria')
+        expect(panel).to_be_visible()
+        expect(panel.get_by_label('Purchase-price multiplier',exact=True)).to_have_value('1.2')
+        expect(panel.get_by_label('Minimum relative to midpoint (%)',exact=True)).to_have_value('0')
+        expect(panel.get_by_label('Maximum relative to midpoint (%)',exact=True)).to_have_value('')
+        original=self.page.locator('#chart').inner_text()
+        posts_before=len(self.posts)
+        panel.get_by_label('Purchase-price multiplier',exact=True).fill('1.5')
+        panel.get_by_label('Minimum relative to midpoint (%)',exact=True).fill('5')
+        panel.get_by_label('Maximum relative to midpoint (%)',exact=True).fill('15')
+        panel.get_by_text('Changes are not applied.',exact=False).wait_for()
+        self.assertEqual(len(self.posts),posts_before)
+        self.assertEqual(self.page.locator('#chart').inner_text(),original)
+        with self.page.expect_response(lambda r:'/api/exit-optimizer/run' in r.url and r.request.method=='POST'):
+            self.page.get_by_role('button',name='Refresh data & analyze',exact=True).click()
+        panel.get_by_text('Criteria applied to the refreshed analysis.',exact=False).wait_for()
+        expected=dict(purchase_price_multiplier=1.5,min_strike_above_midpoint_pct=5,max_strike_above_midpoint_pct=15)
+        self.assertEqual(self.posts[-1][1]['rollover_criteria'],expected)
+        self.assertEqual(len(self.posts),posts_before+1)
+        self.assertEqual(self.posts[-1][0],'exit-optimizer/run')
+        self.assertEqual(self.page.get_by_role('button',name='Reevaluate',exact=True).count(),0)
+        saved=self.page.evaluate("JSON.parse(localStorage.getItem('covered-call-rollover-criteria-v1'))")
+        self.assertEqual(saved,expected)
+        export=capture();export['result']['rollover_criteria']=expected
+        export['result']['rows'][1]['strategy']='Roll then close'
+        export['result']['search']=dict(minimum_strike=24,minimum_exclusive=False,maximum_strike=26.45)
+        csv=self.page.evaluate("""async data => {
+            const {rolloverCsv}=await import('/frontend/dist/src/RolloverExport.js');return rolloverCsv(data);
+        }""",export)
+        import csv as csv_module,io
+        record=next(csv_module.DictReader(io.StringIO(csv.lstrip('\ufeff'))))
+        self.assertEqual(float(record['purchase_price_multiplier']),1.5)
+        self.assertEqual(float(record['min_strike_above_midpoint_pct']),5)
+        self.assertEqual(float(record['max_strike_above_midpoint_pct']),15)
+        self.assertEqual(record['minimum_strike_exclusive'],'false')
+        panel.get_by_role('button',name='Reset criteria',exact=True).click()
+        expect(panel.get_by_label('Maximum relative to midpoint (%)',exact=True)).to_have_value('')
+        self.assertEqual(len(self.posts),posts_before+1)
+        self.page.get_by_role('button',name='Refresh data & analyze',exact=True).click()
+        panel.get_by_text('Criteria applied to the refreshed analysis.',exact=False).wait_for()
+        self.assertIsNone(self.posts[-1][1]['rollover_criteria']['max_strike_above_midpoint_pct'])
+        panel.get_by_label('Minimum relative to midpoint (%)',exact=True).fill('-20')
+        panel.get_by_label('Maximum relative to midpoint (%)',exact=True).fill('-5')
+        before_negative=len(self.posts)
+        panel.get_by_text('Changes are not applied.',exact=False).wait_for()
+        self.assertEqual(len(self.posts),before_negative)
+        self.page.get_by_role('button',name='Refresh data & analyze',exact=True).click()
+        panel.get_by_text('Criteria applied to the refreshed analysis.',exact=False).wait_for()
+        self.assertEqual(self.posts[-1][1]['rollover_criteria'],dict(purchase_price_multiplier=1.2,min_strike_above_midpoint_pct=-20,max_strike_above_midpoint_pct=-5))
+
 
     def test_download_all_rollovers_csv(self):
         import csv
@@ -188,6 +366,9 @@ class ReactDashboardTests(unittest.TestCase):
             self.posts.append((path, body))
             if path.startswith('exit-optimizer/'):
                 data = capture()
+                if body.get('rollover_criteria'):
+                    data['inputs']['rollover_criteria']=body['rollover_criteria']
+                    data['result']['rollover_criteria']=body['rollover_criteria']
                 if body.get('interest_rate'):
                     data['inputs']['interest_rate']['selection']=body['interest_rate']
                     if body['interest_rate']['mode']=='manual':
@@ -258,7 +439,7 @@ class ReactDashboardTests(unittest.TestCase):
                 refresh.assert_not_called()
                 self.page.get_by_role('slider').fill('25')
                 self.page.get_by_text('Close today remains fixed at captured quotes. Real FastAPI round trip.').wait_for()
-                scenario.assert_called_once_with(dict(account='RRSP', symbol='TEST', stock_price=25,interest_rate={'mode':'treasury'}))
+                scenario.assert_called_once_with(dict(account='RRSP', symbol='TEST', stock_price=25,interest_rate={'mode':'treasury'},rollover_criteria=dict(purchase_price_multiplier=1.2,min_strike_above_midpoint_pct=0)))
                 self.assertIn('Net cash US$2,100.00', self.page.locator('#chart g[role="group"]').first.get_attribute('aria-label'))
 
     def test_local_render_scenario_baseline_expire_and_explicit_actions(self):
@@ -758,7 +939,7 @@ class ReactDashboardTests(unittest.TestCase):
                 modal.get_by_text('US$175.00',exact=True).wait_for()
                 modal.get_by_role('checkbox').check()
                 modal.get_by_role('button',name='Record worthless expiry',exact=True).click()
-                self.page.get_by_text('100 shares retained.',exact=False).wait_for()
+                self.page.get_by_text('100 shares retained.',exact=False).last.wait_for()
                 if entry=='rollover': self.page.get_by_role('button',name='Close transactions',exact=True).click()
                 self.assertEqual(self.page.get_by_role('heading',name='Shares available for new calls',exact=True).count(),0)
                 from playwright.sync_api import expect
@@ -965,6 +1146,42 @@ class ReactDashboardTests(unittest.TestCase):
         self.page.get_by_role('button',name='Refresh data & analyze',exact=True).click()
         self.page.get_by_text('Questrade is not configured.',exact=True).wait_for()
         self.assertNotIn('Previous results retained',self.page.locator('#status').inner_text())
+
+    def test_busy_scenario_retries_and_reset_cancels_pending_updates(self):
+        from playwright.sync_api import expect
+        self.open_dashboard()
+        requests=[]
+        def busy_then_success(route):
+            request=route.request.post_data_json;requests.append(request)
+            if len(requests)==1:
+                route.fulfill(status=409,json={'error':'A market-data refresh is already running.'})
+            else:
+                data=capture();data['scenario']=dict(stock_price=request['stock_price'],note='Recalculated after busy analysis.')
+                route.fulfill(json=data)
+        self.context.route('**/api/exit-optimizer/scenario',busy_then_success)
+        slider=self.page.get_by_role('slider')
+        slider.fill('25')
+        self.page.get_by_text('Recalculated after busy analysis.',exact=False).wait_for()
+        self.assertEqual([r['stock_price'] for r in requests],[25,25])
+        before_reset=len(requests)
+        self.page.get_by_role('button',name='Reset to current quote',exact=True).click()
+        expect(slider).to_have_value('23')
+        expect(self.page.locator('#chart [data-scenario-close="true"]')).to_have_count(0)
+        self.assertEqual(len(requests),before_reset)
+        busy=[]
+        def always_busy(route):
+            busy.append(route.request.post_data_json)
+            route.fulfill(status=409,json={'error':'An analysis is already running.'})
+        self.context.route('**/api/exit-optimizer/scenario',always_busy)
+        slider.fill('26')
+        self.page.get_by_text('Waiting for the current analysis to finish',exact=False).wait_for()
+        self.page.get_by_role('button',name='Reset to current quote',exact=True).click()
+        expect(slider).to_have_value('23')
+        self.page.get_by_text('At captured market quotes. Close today stays fixed.',exact=True).wait_for()
+        count=len(busy)
+        self.page.wait_for_timeout(700)
+        self.assertEqual(len(busy),count)
+        expect(self.page.locator('#chart [data-scenario-close="true"]')).to_have_count(0)
 
     def test_latest_scenario_wins_and_capture_stays_fixed(self):
         self.open_dashboard()

@@ -1,13 +1,13 @@
 {
   "renderer": "Actual aiMoney frontend/src/Chart.js and styles.css via React/Playwright",
   "sample_input_sha256": "8e6a20158d16d2d96fc278c3a44e8fbea14ce3f479c9c93e81f6d4772e1e902d",
-  "expected_result_sha256": "bb8f8d91174f8b034606acd3e7842c4379ffe2337e7f472226e429c9a53b70f2",
-  "chart_sha256": "7ccc36abb0280ba51c5b124dfc27795aafd3718ef7754cab91c217e613ffa06f",
+  "expected_result_sha256": "eaeb5f5d6d543c7b3e0c409b51f6e6e16e53f341d72716b87cd3c972366798e2",
+  "chart_sha256": "4b8fc6cc13d10fefd1ea901e605b97e53f54ef4d436b659d35d0edf2b9d29cbe",
   "frontend_sha256": {
-    "src/Chart.js": "d77156151127ca157f474727cc6d6f2ab4ff7707e98ef456d5a5b1a4a87bc914",
-    "src/styles.css": "6d3fc8bce59870c9afd1745cd6ad6b72ce7933c988da865da92cca18f5b0ee65",
+    "src/Chart.js": "a18ea888510bf5a0a8915ee16d0d2066ce3e1f439df508d0dc148c1df687764c",
+    "src/styles.css": "fc618a33e969010fad1adbb65384320de26e143de6a178adcc7685ba01dbd919",
     "src/ui.js": "09a2ea7bea198654b27b408f3e6aa2b6fdec46dc2374c9cddd3e4f6faafa70cb",
-    "src/api.js": "ce7b8d76e672ffb1225613602188af0027d08587bc69e5d5976f8c7648c2915e"
+    "src/api.js": "a2cc2491e400b082d55e3582de7bbd2d60f4b0b50ce39cbf2974672a0f282049"
   },
   "verified_plotted_total_pl_usd": [
     1590.0299999999997,

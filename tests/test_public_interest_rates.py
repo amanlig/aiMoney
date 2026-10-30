@@ -62,7 +62,7 @@ class InterestRates(unittest.TestCase):
 
     def test_scenario_passes_same_rate_to_repricing_and_evaluation(self):
         import exit_optimizer as optimizer
-        data=dict(as_of='2026-10-29',held=dict(expiry='2028-01-21'),stock=dict(bidPrice=40,askPrice=42))
+        data=dict(initial_purchase_price_usd=25,as_of='2026-10-29',held=dict(expiry='2028-01-21'),stock=dict(bidPrice=40,askPrice=42))
         snapshot=dict(inputs=data)
         selection={'mode':'manual','annual_percent':5}
         request=dict(account='RRSP',symbol='TEST',stock_price=45,interest_rate=selection)

@@ -158,6 +158,27 @@ later database edits.
 
 See [Reusable optimizer direction and priorities](docs/optimizer-product-direction.md) for the agreed direction toward broader trader needs, consistent outcome accounting, configurable objectives, risk scenarios and validation. Proposed work is distinguished from current features.
 
+## Cash available and buying power
+
+My profile → Settings includes **Cash available** and **Buying power**
+fields, stored separately for RRSP, TFSA and LIRA in USD or CAD. Enter the amounts
+reported by your broker for the selected account/currency, then Save profile.
+Both amounts default to zero. Clearing a value and saving restores zero. A last-saved timestamp is retained for each pair.
+
+These manual values are saved in this browser alongside other profile
+preferences. Entered **USD buying power** is compared with each displayed
+rollover's estimated net debit. Candidates exceeding it stay in the top three
+and show the shortfall under a transparent diagonal-line rectangle. Adjacent
+over-budget groups share a rectangle; bar colors, values and controls remain
+visible and interactive. Equality passes; missing buying power defaults to zero. Saving Settings updates the display
+without a market refresh or model recalculation. Cash available is not added to
+buying power, and CAD values are not converted to USD for this check.
+
+This compares estimated net rollover cash before future fees with the entered
+amount; broker margin requirements can differ. It does not confirm broker
+eligibility, change model calculations/rankings, or execute trades. No additional
+database schema or broker call is involved.
+
 ## Interest-rate settings
 
 **My profile → Settings → Interest rate** defaults to the U.S. Treasury yield
@@ -187,6 +208,45 @@ seven calendar days old can be used with a notice; otherwise automatic pricing
 is unavailable until Treasury recovers or a manual rate is chosen. There is no
 silent 4% fallback. The analysis snapshot and rollover CSV include the applied
 rate, source and observation date. No API key or new database schema is needed.
+
+## Rollover strike criteria
+
+The optimizer places the owned-position price slider on the left and replacement-call
+criteria on the right. On narrow screens, owned-position controls appear first.
+The slider remains visible but disabled until a captured quote is available.
+
+The replacement-call panel has two editable rules above the results:
+
+1. **Minimum assignment price:** original stock purchase price × multiplier.
+   The default is **1.2×**, meaning an assignment price at least 20% above purchase.
+2. **Strike range relative to the stock midpoint:** minimum and optional maximum
+   percentages. Defaults are **0% minimum and no maximum**, including both ATM
+   and OTM calls. Negative percentages allow ITM calls below the midpoint,
+   subject to the purchase-price floor; values must be at least -100%. A blank
+   maximum means no cap. Both boundaries are inclusive.
+
+Editing fields or clicking Reset criteria does not recalculate the chart.
+Click **Refresh data & analyze** to retrieve quotes and apply the current fields.
+A successful refresh stores the applied preference in this browser; a failed
+refresh keeps the previous analysis and its applied rules. There is no separate
+Reevaluate button. Slider scenarios, recommendations and CSV exports use the last
+successfully applied rules, not unsubmitted edits.
+
+For purchase price P, stock midpoint S, multiplier M, and lower/upper percentages:
+
+```text
+minimum strike = max(P × M, S × (1 + minimum_percent / 100))
+maximum strike = S × (1 + maximum_percent / 100), or unlimited when blank
+```
+
+The application passes `purchase_price_multiplier`,
+`min_strike_above_midpoint_pct` and `max_strike_above_midpoint_pct` explicitly
+into `model.evaluate()`. Applied parameters and effective dollar boundaries are
+retained in analysis snapshots and CSV. Existing contract/quote quality checks
+and expiry rules still apply. A range conflicting with the assignment-price
+floor produces no matching contracts rather than silently relaxing either rule.
+Saved captures retain their quote coverage; scenarios requiring uncaptured
+strikes request an explicit market refresh.
 
 ## From the UI to the covered-call model
 
@@ -291,8 +351,16 @@ sequenceDiagram
     Note over UI: Original Close today stays fixed at captured midpoints
 ```
 
+Changing the stock-price slider reprices saved option quotes and reruns the model
+across its simulated paths and available captured contracts, then reranks the
+results. It does not merely filter the previous three outcomes. The same sampled
+return sequences are reused from the fixed seed, starting at the chosen price.
+Busy (HTTP 409) scenario requests wait and retry with cancellation when the user
+changes price or resets, rather than leaving the latest price uncalculated.
+
 Resetting the slider to the captured stock midpoint restores the baseline in the
-UI without another scenario request. Scenario calculations do not overwrite the
+UI without another scenario request when its applied assumptions still match.
+If assumptions have changed, the reset price is evaluated under those assumptions. Scenario calculations do not overwrite the
 saved market capture.
 
 ### Model function guide

@@ -88,6 +88,44 @@ class ExitModelTests(unittest.TestCase):
         for invalid in [True,float('nan'),float('inf'),-.2,.4,'0.04']:
             with self.assertRaises(ValueError):m.evaluate(data,paths=100,rate=invalid)
 
+    def test_configurable_strike_rules_are_inclusive_and_do_not_change_close(self):
+        import copy
+        data=self.fixture();data['stock'].update(bidPrice=39.9,askPrice=40.1)
+        quote=dict(data['held'],validated=True,expiry='2028-02-18',bidPrice=12,askPrice=13)
+        data['candidates']=[dict(quote,strike=k) for k in (39.99,40,44,44.01,100)]
+        original=copy.deepcopy(data)
+        bounded=m.evaluate(data,paths=100,purchase_price_multiplier=1.2,min_strike_above_midpoint_pct=0,max_strike_above_midpoint_pct=10)
+        strikes=lambda result:{r['strike'] for r in result['rows'] if r['strategy']=='Roll then close'}
+        self.assertEqual(strikes(bounded),{40,44})
+        self.assertEqual(bounded['search']['maximum_strike'],44)
+        self.assertFalse(bounded['search']['minimum_exclusive'])
+        default=m.evaluate(data,paths=100)
+        self.assertEqual(strikes(default),{40,44,44.01,100})
+        self.assertIsNone(default['search']['maximum_strike'])
+        self.assertEqual(default['baseline'],bounded['baseline'])
+        raised=m.evaluate(data,paths=100,purchase_price_multiplier=2,min_strike_above_midpoint_pct=0,max_strike_above_midpoint_pct=10)
+        self.assertEqual(strikes(raised),set())
+        self.assertEqual(raised['top_choices'],[])
+        self.assertEqual(data,original)
+        for invalid in [dict(purchase_price_multiplier=0),dict(purchase_price_multiplier=True),dict(min_strike_above_midpoint_pct=-101),dict(max_strike_above_midpoint_pct=float('inf')),dict(min_strike_above_midpoint_pct=10,max_strike_above_midpoint_pct=5)]:
+            with self.assertRaises(ValueError):m.evaluate(data,paths=100,**invalid)
+
+    def test_negative_midpoint_range_includes_itm_but_keeps_purchase_floor(self):
+        data=self.fixture();data['stock'].update(bidPrice=39.9,askPrice=40.1)
+        quote=dict(data['held'],validated=True,expiry='2028-02-18',bidPrice=12,askPrice=13)
+        data['candidates']=[dict(quote,strike=k) for k in (29,30,35,40,41)]
+        result=m.evaluate(data,paths=100,min_strike_above_midpoint_pct=-30,max_strike_above_midpoint_pct=0)
+        strikes=lambda r:{x['strike'] for x in r['rows'] if x['strategy']=='Roll then close'}
+        self.assertEqual(result['search']['minimum_strike'],30)
+        self.assertEqual(result['search']['maximum_strike'],40)
+        self.assertEqual(strikes(result),{30,35,40})
+        below=m.evaluate(data,paths=100,min_strike_above_midpoint_pct=-30,max_strike_above_midpoint_pct=-10)
+        self.assertEqual(strikes(below),{30,35})
+        default=m.evaluate(data,paths=100)
+        self.assertEqual(strikes(default),{40,41})
+        self.assertEqual(default['rollover_criteria'],m.DEFAULT_ROLLOVER_CRITERIA)
+        self.assertEqual(default['baseline'],result['baseline'])
+
     def test_close_cash_and_seed(self):
         d=self.fixture();r=m.evaluate(d,paths=100)
         self.assertAlmostEqual(r['baseline'],12775)
@@ -114,7 +152,7 @@ class ExitModelTests(unittest.TestCase):
         d=self.fixture();q=dict(d['held'],validated=True,strike=45,bidPrice=12,askPrice=13)
         d['candidates']=[q,dict(q,strike=40.05),dict(q,expiry='2029-01-22'),dict(q,delay=15)]
         r=m.evaluate(d,paths=100)
-        self.assertEqual(r['excluded'],3)
+        self.assertEqual(r['excluded'],2)
         json.dumps(r)  # app persistence and HTTP response must serialize
         roll=next(x for x in r['rows'] if x['strategy']=='Roll then close')
         self.assertEqual(roll['roll_credit'],-1500)
@@ -157,7 +195,7 @@ class ExitModelTests(unittest.TestCase):
         profits=[row['net_profit_usd'] for row in r['top_choices']]
         self.assertEqual(profits,sorted(profits,reverse=True))
         self.assertTrue(all(p>0 for p in profits))
-        self.assertEqual(r['search'],dict(minimum_strike=40.05,minimum_exclusive=True,maximum_strike=None,first_expiry='2026-10-20',last_expiry='2029-01-21'))
+        self.assertEqual(r['search'],dict(minimum_strike=40.05,minimum_exclusive=False,maximum_strike=None,first_expiry='2026-10-20',last_expiry='2029-01-21'))
         d['opening_reference']['option_total_usd']=-100000
         losses=m.evaluate(d,paths=100)['top_choices']
         self.assertEqual(len(losses),3)
@@ -184,7 +222,7 @@ class ExitModelTests(unittest.TestCase):
         for invalid in [0,current*2,float('nan'),True]:
             with self.assertRaises(ValueError):m.stock_price_scenario(d,invalid)
 
-    def test_strikes_strictly_above_purchase_and_scenario_spot(self):
+    def test_strikes_respect_purchase_floor_and_inclusive_scenario_midpoint(self):
         d=self.fixture();d['initial_purchase_price_usd']=50
         q=dict(d['held'],validated=True,expiry='2028-03-17')
         d['candidates']=[dict(q,strike=50,bidPrice=8,askPrice=9),dict(q,strike=60,bidPrice=7,askPrice=8),dict(q,strike=100,bidPrice=2,askPrice=3)]
@@ -196,7 +234,7 @@ class ExitModelTests(unittest.TestCase):
         self.assertFalse(r['search']['minimum_exclusive'])
         scenario=m.stock_price_scenario(d,60)
         changed=m.evaluate(scenario,paths=100)
-        self.assertEqual({x['strike'] for x in changed['rows'] if x['strategy']=='Roll then close'},{100})
+        self.assertEqual({x['strike'] for x in changed['rows'] if x['strategy']=='Roll then close'},{60,100})
 
     def test_earliest_future_expiry_is_included(self):
         d=self.fixture();q=dict(d['held'],validated=True,strike=45,bidPrice=.1,askPrice=.2)

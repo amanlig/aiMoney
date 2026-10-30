@@ -27,3 +27,28 @@ export const holdingLabel = h => h.call_contracts===0 ? `${h.account} · ${h.sym
 export function readStored(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; }
 }
+
+function waitForAnalysis(milliseconds, signal) {
+  return new Promise((resolve,reject) => {
+    const aborted=()=>reject(new DOMException('Scenario canceled.','AbortError'));
+    if(signal?.aborted) {aborted();return;}
+    const onAbort=()=>{clearTimeout(timer);aborted();};
+    const timer=setTimeout(()=>{signal?.removeEventListener('abort',onAbort);resolve();},milliseconds);
+    signal?.addEventListener('abort',onAbort,{once:true});
+  });
+}
+
+// A canceled browser request can leave its server-side calculation running.
+// Retry only read-only scenario computation while that analysis lock is busy.
+export async function calculateScenario(body,{signal,onBusy}={}) {
+  const deadline=Date.now()+60000;
+  let attempts=0;
+  while(true) {
+    try {return await api('/api/exit-optimizer/scenario',{body,signal});}
+    catch(error) {
+      if(error.status!==409 || Date.now()>=deadline) throw error;
+      onBusy?.();
+      await waitForAnalysis(Math.min(500*2**attempts++,2000),signal);
+    }
+  }
+}

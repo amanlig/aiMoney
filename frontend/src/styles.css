@@ -93,3 +93,23 @@ section{margin:14px 0;padding:18px}h2{font-size:19px;margin:0 0 14px}h2 small{fo
 
 #profile-settings label{max-width:calc(100% - 20px)}
 #profile-settings input,#profile-settings select{box-sizing:border-box;max-width:100%;min-width:0}
+
+.rollover-rule-fields{display:flex;flex-wrap:wrap;gap:16px}
+.rollover-rule-fields fieldset{flex:1 1 300px;min-width:0;border:1px solid #555;border-radius:8px;padding:14px}
+.rollover-rule-fields legend{padding:0 6px;font-weight:600}
+.rollover-rule-fields label{max-width:calc(100% - 20px)}
+.rollover-rule-fields input{box-sizing:border-box;max-width:100%;min-width:0}
+#rollover-criteria .entry-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
+
+.buying-power-note{font-size:13px;color:#c5cdd6}
+
+.position-control-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start;margin:20px 0}
+.position-control-grid>section{margin:0;min-width:0}
+#owned-position-controls #stock-scenario .scenario-header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px}
+#owned-position-controls #stock-scenario{margin:14px 0!important}
+#owned-position-controls .slider-track{margin-bottom:58px}
+#owned-position-controls #close-today-summary>p>strong{font-size:25px}
+.position-control-grid #rollover-criteria p{font-size:13px;line-height:1.5}
+.position-control-grid .rollover-rule-fields fieldset{padding:10px 12px}
+.position-control-grid legend{max-width:calc(100% - 12px);white-space:normal}
+@media(max-width:900px){.position-control-grid{grid-template-columns:minmax(0,1fr)}}

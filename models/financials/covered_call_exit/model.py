@@ -5,7 +5,7 @@ import math
 import random
 import statistics
 
-VERSION = '1.15'
+VERSION = '1.16'
 
 def month_shift(day, months):
     year, month = divmod(day.year * 12 + day.month - 1 + months, 12)
@@ -41,7 +41,40 @@ def summarize(values, baseline, discount):
     return dict(mean=sum(values)/len(values), p10=values[int(.1*(len(values)-1))],
                 p90=values[int(.9*(len(values)-1))], probability_beating_close=sum(v>baseline for v in values)/len(values))
 
-def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04, close_at_mid=True):
+DEFAULT_ROLLOVER_CRITERIA = dict(purchase_price_multiplier=1.2,
+    min_strike_above_midpoint_pct=0.0, max_strike_above_midpoint_pct=None)
+
+
+def normalize_criteria(criteria=None):
+    if criteria is None: return dict(DEFAULT_ROLLOVER_CRITERIA)
+    if not isinstance(criteria,dict) or set(criteria)-set(DEFAULT_ROLLOVER_CRITERIA):
+        raise ValueError('Invalid rollover criteria.')
+    result={**DEFAULT_ROLLOVER_CRITERIA,**criteria}
+    for key,value in result.items():
+        if key=='max_strike_above_midpoint_pct' and value is None:continue
+        if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value):
+            raise ValueError('Rollover criteria must be finite numbers.')
+        if key=='purchase_price_multiplier' and value<=0:
+            raise ValueError('Purchase multiplier must be positive.')
+        if key!='purchase_price_multiplier' and value < -100:
+            raise ValueError('Midpoint percentages must be at least -100%.')
+    if result['max_strike_above_midpoint_pct'] is not None and result['max_strike_above_midpoint_pct']<result['min_strike_above_midpoint_pct']:
+        raise ValueError('Maximum strike percentage must be at least the minimum percentage.')
+    return result
+
+
+def strike_bounds(purchase,spot,**criteria):
+    criteria=normalize_criteria(criteria)
+    lower=max(purchase*criteria['purchase_price_multiplier'],spot*(1+criteria['min_strike_above_midpoint_pct']/100))
+    upper=None if criteria['max_strike_above_midpoint_pct'] is None else spot*(1+criteria['max_strike_above_midpoint_pct']/100)
+    if not math.isfinite(lower) or (upper is not None and not math.isfinite(upper)):
+        raise ValueError('Strike criteria produce a non-finite price.')
+    return dict(minimum_strike=lower,minimum_exclusive=False,maximum_strike=upper)
+
+
+def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04, close_at_mid=True, *,
+             purchase_price_multiplier=1.2, min_strike_above_midpoint_pct=0.0,
+             max_strike_above_midpoint_pct=None):
     """Compare discounted USD liquidation wealth at a common trading-day horizon.
 
     Historical daily log returns are sampled with replacement. Future option
@@ -58,6 +91,8 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04, close_at_mid=True)
     purchase=data.get('initial_purchase_price_usd')
     if not isinstance(purchase,(int,float)) or isinstance(purchase,bool) or not math.isfinite(purchase) or purchase<=0:
         raise ValueError('A positive original USD purchase price is required')
+    criteria=normalize_criteria(dict(purchase_price_multiplier=purchase_price_multiplier,
+        min_strike_above_midpoint_pct=min_strike_above_midpoint_pct,max_strike_above_midpoint_pct=max_strike_above_midpoint_pct))
     floor=purchase*1.10
     if type(n) is not int or n<=0 or shares!=100*n or strike<=0 or expiry<=today:
         raise ValueError('Requires an unexpired, fully covered standard 100-share call position')
@@ -72,6 +107,7 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04, close_at_mid=True)
     if (today-date.fromisoformat(history[-1]['date'])).days>5: raise ValueError('Stock history is stale')
     returns=[math.log(b/a) for a,b in zip(closes,closes[1:])]
     stock=data['stock']; spot=(stock['bidPrice']+stock['askPrice'])/2
+    bounds=strike_bounds(purchase,spot,**criteria)
     spread=(stock['askPrice']-stock['bidPrice'])/2
     held_iv=held.get('scenario_iv') or implied_volatility(spot,strike,(expiry-today).days/365,(held['bidPrice']+held['askPrice'])/2,rate)
     close_stock=spot if close_at_mid else stock['bidPrice']
@@ -106,7 +142,7 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04, close_at_mid=True)
     excluded=0
     for q in data.get('candidates',[]):
         exp=date.fromisoformat(q['expiry']); k=q['strike']
-        if not (k>=1.2*purchase and k>spot and today<exp<=month_shift(expiry,12) and exp>today and (exp!=expiry or k!=strike)) or not valid_quote(q,n) or q.get('validated') is not True:
+        if not (k>=bounds['minimum_strike'] and (bounds['maximum_strike'] is None or k<=bounds['maximum_strike']) and today<exp<=month_shift(expiry,12) and exp>today and (exp!=expiry or k!=strike)) or not valid_quote(q,n) or q.get('validated') is not True:
             excluded+=1;continue
         try: iv=q.get('scenario_iv') or implied_volatility(spot,k,(exp-today).days/365,(q['bidPrice']+q['askPrice'])/2,rate)
         except ValueError: excluded+=1;continue
@@ -132,8 +168,8 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04, close_at_mid=True)
     top_choices=sorted((row for row in rows if row['strategy']=='Roll then close' and row['net_profit_usd'] is not None),
                        key=lambda row:row['net_profit_usd'],reverse=True)[:3]
 
-    result=dict(version=VERSION,rate=rate,close_pricing='midpoint' if close_at_mid else 'bid_ask',top_choices=top_choices,profit_reference_available=known,
-                search=dict(minimum_strike=max(1.2*purchase,spot),minimum_exclusive=spot>=1.2*purchase,maximum_strike=None,first_expiry=(today+timedelta(days=1)).isoformat(),last_expiry=month_shift(expiry,12).isoformat()),initial_purchase_price_usd=purchase,minimum_stock_sale_price_usd=floor,
+    result=dict(version=VERSION,rate=rate,rollover_criteria=criteria,close_pricing='midpoint' if close_at_mid else 'bid_ask',top_choices=top_choices,profit_reference_available=known,
+                search=dict(**bounds,first_expiry=(today+timedelta(days=1)).isoformat(),last_expiry=month_shift(expiry,12).isoformat()),initial_purchase_price_usd=purchase,minimum_stock_sale_price_usd=floor,
                 constraint='Rank the three best net profits regardless of profit sign or sale-floor eligibility. Sale-floor flags remain visible; strike/expiry and quote-quality filters remain enforced. Future market prices are not guaranteed.',rows=rows,baseline=baseline,excluded=excluded,paths=paths,seed=seed,
                 history_count=len(closes),history_start=history[0]['date'],history_end=history[-1]['date'],
                 realized_volatility=statistics.stdev(returns)*math.sqrt(252),held_implied_volatility=held_iv,

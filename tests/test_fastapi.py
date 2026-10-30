@@ -116,6 +116,24 @@ class ApiContracts(unittest.TestCase):
             if bad==float('inf'):continue
             self.assertEqual(self.post('/api/exit-optimizer/scenario',body).status_code,422)
 
+    def test_rollover_criteria_arguments_and_invalid_ranges(self):
+        criteria=dict(purchase_price_multiplier=1.2,min_strike_above_midpoint_pct=0,max_strike_above_midpoint_pct=20)
+        body=dict(account='RRSP',symbol='TEST',rollover_criteria=criteria)
+        with patch.object(server.exit_optimizer,'run',return_value={}) as run:
+            self.assertEqual(self.post('/api/exit-optimizer/run',body).status_code,200)
+            self.assertEqual(run.call_args.args[0]['rollover_criteria'],criteria)
+        negative=dict(account='RRSP',symbol='TEST',rollover_criteria=dict(purchase_price_multiplier=1.2,min_strike_above_midpoint_pct=-20,max_strike_above_midpoint_pct=-5))
+        with patch.object(server.exit_optimizer,'run',return_value={}) as operation:
+            self.assertEqual(self.post('/api/exit-optimizer/run',negative).status_code,200)
+            self.assertEqual(operation.call_args.args[0]['rollover_criteria'],negative['rollover_criteria'])
+        scenario=dict(body,stock_price=25)
+        with patch.object(server.exit_optimizer,'scenario',return_value={}) as operation:
+            self.assertEqual(self.post('/api/exit-optimizer/scenario',scenario).status_code,200)
+            self.assertEqual(operation.call_args.args[0]['rollover_criteria'],criteria)
+        for invalid in [dict(purchase_price_multiplier=0),dict(purchase_price_multiplier=True),dict(min_strike_above_midpoint_pct=-101),dict(min_strike_above_midpoint_pct=10,max_strike_above_midpoint_pct=5),dict(extra=5)]:
+            body['rollover_criteria']=invalid
+            self.assertEqual(self.post('/api/exit-optimizer/run',body).status_code,422)
+
     def test_basis_roundtrip_uses_sqlite_service(self):
         path = self.root/'data/test.sqlite3'
         original_save = server.stock_basis.save_many

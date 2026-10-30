@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -104,15 +104,30 @@ class InterestRateSelection(BaseModel):
     annual_percent: float | None = Field(default=None, ge=-5, le=25, allow_inf_nan=False)
 
 
+class RolloverCriteriaSelection(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    purchase_price_multiplier: float = Field(default=1.2,gt=0,allow_inf_nan=False)
+    min_strike_above_midpoint_pct: float = Field(default=0,ge=-100,allow_inf_nan=False)
+    max_strike_above_midpoint_pct: float | None = Field(default=None,ge=-100,allow_inf_nan=False)
+
+    @model_validator(mode='after')
+    def ordered_range(self):
+        if self.max_strike_above_midpoint_pct is not None and self.max_strike_above_midpoint_pct<self.min_strike_above_midpoint_pct:
+            raise ValueError('Maximum strike percentage must be at least the minimum percentage.')
+        return self
+
+
 class RunRequest(PositionRequest):
     account: Literal['LIRA', 'RRSP', 'TFSA'] = 'RRSP'
     symbol: str = 'ASTS'
     horizon: int = Field(default=30, ge=1, le=63)
     interest_rate: InterestRateSelection | None = None
+    rollover_criteria: RolloverCriteriaSelection | None = None
 
 
 class ScenarioRequest(PositionRequest):
     interest_rate: InterestRateSelection | None = None
+    rollover_criteria: RolloverCriteriaSelection | None = None
     stock_price: float = Field(gt=0, allow_inf_nan=False)
 
 

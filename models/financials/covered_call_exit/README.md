@@ -152,3 +152,16 @@ Profile → Settings also permits a manual annual-yield override. The same scala
 rate is used for all contracts and discounting; this is not a full zero curve.
 Treasury retrieval, caching, provenance and browser preferences live in the
 application, outside this model package.
+
+## Configurable strike rules
+
+`evaluate()` accepts keyword-only `purchase_price_multiplier=1.2`,
+`min_strike_above_midpoint_pct=0.0`, and
+`max_strike_above_midpoint_pct=None`. Strikes must meet the purchase floor
+and the inclusive midpoint-relative range; `None` means no upper cap.
+The app exposes these on the optimizer page and applies edits through
+Refresh data & analyze. The stock-sale-floor reporting flag is separate from
+these contract-selection parameters.
+
+Negative midpoint percentages (down to -100%) permit ITM replacement calls;
+the purchase-price floor always applies. The default minimum stays 0%.

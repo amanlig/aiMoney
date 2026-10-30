@@ -22,8 +22,10 @@ def snapshot(request):
     if request.get('expected_rate') is not None and abs(request['expected_rate']-rate)>1e-10:
         raise ValueError('The interest rate changed since this chart was calculated. Recalculate the scenario before generating a recommendation.')
     inputs = optimizer.model.stock_price_scenario(original, request.get('stock_price'), rate=rate)
-    baseline = optimizer.model.evaluate(original, rate=rate)
-    analysis = optimizer.model.evaluate(inputs, rate=rate, close_at_mid=False)
+    inputs = optimizer.with_rollover_criteria(inputs, request.get('rollover_criteria'))
+    criteria=inputs['rollover_criteria']
+    baseline = optimizer.model.evaluate(original, rate=rate, **criteria)
+    analysis = optimizer.model.evaluate(inputs, rate=rate, close_at_mid=False, **criteria)
     modes = request.get('modes', {})
     if not isinstance(modes, dict) or len(modes) > 100 or any(v not in ('close', 'expire') for v in modes.values()):
         raise ValueError('Invalid rollover exit choices.')
@@ -38,7 +40,7 @@ def snapshot(request):
                 captured_stock=original['stock'], hypothetical_stock_price=request['stock_price'],
                 close_today=next(r for r in baseline['rows'] if r['strategy']=='Close now'),
                 displayed_rollovers=rolls, assumptions=analysis['assumptions'],
-                interest_rate=original['interest_rate'], model_version=analysis['version'], search=analysis['search'],
+                rollover_criteria=criteria, interest_rate=original['interest_rate'], model_version=analysis['version'], search=analysis['search'],
                 sale_floor_usd=analysis['minimum_stock_sale_price_usd'],
                 limitations=['No live news, macro health, account cash balance or broker margin calculation.',
                              'Close today is fixed at captured quotes; rollovers use the selected slider scenario.',

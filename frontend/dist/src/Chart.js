@@ -1,3 +1,4 @@
+import {buyingPowerCheck,availableBuyingPower} from './BuyingPower.js';
 import {html, useState, useRef, useEffect} from './ui.js';
 import {money, rollKey} from './api.js';
 
@@ -13,7 +14,7 @@ export function displayedRows(analysis, baseline, modes, scenarioPrice = null) {
     strategy: 'Close at slider price', scenario_price: scenarioPrice}] : []), ...rolls];
 }
 
-export function Chart({analysis, baseline, modes, onMode, scenarioPrice}) {
+export function Chart({analysis, baseline, modes, onMode, scenarioPrice, accountFunds = {}}) {
   const [detail, setDetail] = useState('Hover or focus a bar segment to see its value.');
   const container = useRef();
   const [width, setWidth] = useState(1040);
@@ -44,13 +45,29 @@ export function Chart({analysis, baseline, modes, onMode, scenarioPrice}) {
   const high = Math.max(1, reference.stock_total_usd || 0,
     ...rows.map(row => Math.max(sale(row), Math.abs(row.cash_flows.option_purchase), parts(row).positive || 0))) * 1.16;
   const low = Math.min(0, ...rows.map(row => parts(row).negative || 0)) * 1.12;
-  const height = 955, left = 100, top = 40, plotHeight = 495;
+  const buyingPower=availableBuyingPower(accountFunds,analysis.inputs.account);
+  const hasBuyingPower=typeof buyingPower==='number' && Number.isFinite(buyingPower);
+  const height = hasBuyingPower ? 995 : 955, left = 100, top = 40, plotHeight = 495;
   const y = value => top + (high - value) / (high - low) * plotHeight;
   const step = (chartWidth - left - 18) / rows.length;
   const floor = reference.stock_price_usd * 1.10;
+  // Merge adjacent over-budget groups into one transparent hatched rectangle.
+  const blockedRanges=[];
+  rows.forEach((row,i)=>{
+    if(row.strategy==='Close now' || row.strategy==='Close at slider price'
+      || buyingPowerCheck(row,accountFunds,analysis.inputs.account).status!=='exceeds') return;
+    const previous=blockedRanges[blockedRanges.length-1];
+    if(previous && previous.end===i-1) previous.end=i;
+    else blockedRanges.push({start:i,end:i});
+  });
   return html`<div ref=${container}>
+    <p className="buying-power-note">${hasBuyingPower
+      ? `${analysis.inputs.account} USD buying power entered: ${money(buyingPower)}. Replacements exceeding it are marked with diagonal lines.`
+      : `Buying power not checked: enter USD buying power for ${analysis.inputs.account} in My profile → Settings.`}
+      Comparison uses the estimated net rollover debit before future fees. Broker margin requirements can differ.</p>
     <div className="scroll" id="chart" role="region" aria-label="Covered-call cash flows in USD" tabIndex="0">
       <svg width=${chartWidth} height=${height} viewBox=${`0 0 ${chartWidth} ${height}`} role="img" aria-label="Stock sale, call buyback, replacement premium and P/L in USD">
+        <defs><pattern id="buying-power-hatch" width="18" height="18" patternUnits="userSpaceOnUse"><path d="M-4 4L4 -4M0 18L18 0M14 22L22 14" stroke="#f5ca6b" strokeWidth="1" strokeOpacity="0.38" fill="none"/></pattern></defs>
         ${Array.from({length: 9}, (_, i) => {const value = low + (high - low) * i / 8; return html`<g key=${i}><line x1=${left} x2=${chartWidth - 18} y1=${y(value)} y2=${y(value)} stroke="#333"/><text x=${left - 10} y=${y(value) + 4} textAnchor="end" fontSize="12">${money(value)}</text></g>`;})}
         <line x1=${left} x2=${chartWidth - 18} y1=${y(0)} y2=${y(0)} stroke="#7e8c9e"/>
         ${Number.isFinite(reference.stock_total_usd) ? html`<line x1=${left} x2=${chartWidth - 18} y1=${y(reference.stock_total_usd)} y2=${y(reference.stock_total_usd)} stroke="#8b602b" strokeWidth="2"/>` : null}
@@ -61,10 +78,15 @@ export function Chart({analysis, baseline, modes, onMode, scenarioPrice}) {
             : closing ? (row.sale_floor_pass_rate === 1 ? 'Stock sale meets floor' : 'Stock sale below floor')
               : `Sale floor met: ${(100 * row.sale_floor_pass_rate).toFixed(1)}% of paths`;
           const funding = row.roll_funding;
+          const power=closing ? null : buyingPowerCheck(row,accountFunds,analysis.inputs.account);
+          const exceeds=power?.status==='exceeds';
+          const powerNote=power?.status==='exceeds' ? `Exceeds entered USD buying power ${money(power.buyingPower)}; shortfall ${money(power.shortfall)}.`
+            : power?.status==='within' ? `Within entered USD buying power ${money(power.buyingPower)}.`
+            : power?.status==='unavailable' ? 'Buying power check unavailable: no usable rollover funding estimate.' : '';
           const captured = (baseline || analysis).inputs;
           const quote = (label, q, side) => `${label}: ${money(q?.[side + 'Price'])} × ${q?.[side + 'Size'] ?? 'N/A'}`;
           const liquidity = today ? ['Stock · bid/ask × displayed size', quote('Bid', captured.stock, 'bid'), quote('Ask', captured.stock, 'ask'), 'Held call · size in contracts', quote('Bid', captured.held, 'bid'), quote('Ask', captured.held, 'ask'), `Captured ${captured.captured_at}`] : [];
-          const description = `${row.strategy} ${row.expiry || ''} ${row.strike || ''}. ${floorStatus}. Stock sale ${money(row.cash_flows.stock_sale)}; call purchase ${money(row.cash_flows.option_purchase)}; replacement sale ${money(row.cash_flows.option_sale)}. Net cash ${money(row.mean)}. ${expire ? 'Option-only P/L' : 'Full-position P/L'} ${money(gain)}. Completed-call P/L ${money(pnl.realized)}. Unrealized / simulated P/L ${money(pnl.unrealized)}. ${expire ? row.assumption + ' Stock value excluded.' : `10–90% range ${money(row.p10)} to ${money(row.p90)}. Versus captured close today ${money(row.mean - (baseline?.result.baseline ?? analysis.result.baseline))}.`} ${funding ? `Roll cash needed ${money(funding.net_debit_usd)}. ${funding.note}` : ''} ${liquidity.join('; ')}`;
+          const description = `${row.strategy} ${row.expiry || ''} ${row.strike || ''}. ${floorStatus}. Stock sale ${money(row.cash_flows.stock_sale)}; call purchase ${money(row.cash_flows.option_purchase)}; replacement sale ${money(row.cash_flows.option_sale)}. Net cash ${money(row.mean)}. ${expire ? 'Option-only P/L' : 'Full-position P/L'} ${money(gain)}. Completed-call P/L ${money(pnl.realized)}. Unrealized / simulated P/L ${money(pnl.unrealized)}. ${expire ? row.assumption + ' Stock value excluded.' : `10–90% range ${money(row.p10)} to ${money(row.p90)}. Versus captured close today ${money(row.mean - (baseline?.result.baseline ?? analysis.result.baseline))}.`} ${funding ? `Roll cash needed ${money(funding.net_debit_usd)}. ${funding.note}` : ''} ${liquidity.join('; ')} ${powerNote}`;
           const segment = (label, value) => {
             const text = `${label}: ${money(value)}`;
             return {text, props: {tabIndex: 0, role: 'img', 'aria-label': text,
@@ -76,7 +98,8 @@ export function Chart({analysis, baseline, modes, onMode, scenarioPrice}) {
           const segmentName = () => expire ? 'Net option-only P/L' : 'Net full-position P/L';
           const labels = expire ? [floorStatus, 'Replacement buyback = $0', `Held-call buyback: ${money(row.held_buyback_usd)}`, 'Assumes worthless; no assignment', 'Option P/L excludes stock value']
             : [floorStatus, `Sale price ≥ ${money(floor)}`, closing ? 'Assignment: N/A (closed)' : `Assignment strike ${row.strike >= floor ? 'meets' : 'below'} floor`, closing ? '' : `${money(row.strike)} ${row.strike >= floor ? '≥' : '<'} ${money(floor)}`, `Floor = ${money(reference.stock_price_usd)} × 1.10`];
-          return html`<g key=${today ? 'baseline' : scenario ? 'scenario-close' : rollKey(analysis, row)} data-scenario-close=${scenario ? 'true' : undefined}>
+          return html`<g key=${today ? 'baseline' : scenario ? 'scenario-close' : rollKey(analysis, row)} data-scenario-close=${scenario ? 'true' : undefined} data-rollover=${closing ? undefined : 'true'}
+            data-buying-power=${power?.status} className=${exceeds ? 'buying-power-exceeded' : undefined}>
             <g role="group" aria-label=${description}>
               <rect x=${cx - 69} y=${y(row.cash_flows.stock_sale)} width=${w} height=${Math.max(0, y(0) - y(row.cash_flows.stock_sale))} fill="#26856c" ...${stockSegment.props}><title>${stockSegment.text}</title></rect>
               <rect x=${cx - 69} y=${y(sale(row))} width=${w} height=${Math.max(0, y(row.cash_flows.stock_sale) - y(sale(row)))} fill="#518acb" ...${premiumSegment.props}><title>${premiumSegment.text}</title></rect>
@@ -93,10 +116,16 @@ export function Chart({analysis, baseline, modes, onMode, scenarioPrice}) {
               ${labels.map((label, j) => html`<text key=${j} x=${cx} y=${690 + j * 20} textAnchor="middle" fontSize="11">${label}</text>`)}
               ${liquidity.map((label, j) => html`<text key=${j} x=${cx} y=${793 + j * 18} textAnchor="middle" fontSize="10">${label}</text>`)}
               ${funding ? html`<text x=${cx} y="912" textAnchor="middle" fontSize="12" style=${{fill: '#f5ca6b'}}>Roll cash needed: ${money(funding.net_debit_usd)}</text><text x=${cx} y="931" textAnchor="middle" fontSize="10">${funding.net_credit_usd > 0 ? 'Net credit: ' + money(funding.net_credit_usd) : 'Buyback − new premium (minimum $0)'}</text>` : null}
+              ${!closing && hasBuyingPower ? html`<text x=${cx} y="951" textAnchor="middle" fontSize="11" fontWeight="600">${exceeds ? 'Exceeds entered buying power' : power?.status==='within' ? 'Within entered buying power' : 'Buying power check unavailable'}</text>
+                ${exceeds ? html`<text x=${cx} y="972" textAnchor="middle" fontSize="11">Shortfall: ${money(power.shortfall)}</text>` : null}` : null}
             </g>
             ${closing ? null : html`<foreignObject x=${cx - step / 2 + 8} y="636" width=${step - 16} height="40"><div className="roll-toggle" role="radiogroup" aria-label=${`Exit choice for $${row.strike} ${row.expiry}`}>${['close', 'expire'].map(mode => html`<label key=${mode}><input type="radio" name=${'roll-mode-' + i} value=${mode} checked=${(expire ? 'expire' : 'close') === mode} onChange=${() => onMode(rollKey(analysis, row), mode)}/>${mode === 'close' ? 'Close' : 'Expire'}</label>`)}</div></foreignObject>`}
           </g>`;
         })}
+        ${blockedRanges.map(({start,end})=>html`<rect key=${start} data-buying-power-overlay="true"
+          x=${left+step*start+3} y=${top} width=${step*(end-start+1)-6} height=${plotHeight}
+          fill="url(#buying-power-hatch)" stroke="#f5ca6b" strokeOpacity="0.7" strokeWidth="1"
+          pointerEvents="none" aria-hidden="true"/>`)}
       </svg>
     </div>
     <p id="chart-detail" aria-live="polite">${detail}</p>

@@ -1,3 +1,4 @@
+import {AccountFundsSettings, serializeAccountFunds} from './AccountFundsSettings.js';
 import {Input} from './Input.js';
 import {InterestRateSettings} from './InterestRateSettings.js';
 import {html, useState, useEffect, useRef} from './ui.js';
@@ -11,10 +12,11 @@ const PROFILE = 'covered-call-profile-v1';
 const transactionTabs = [['stock', 'Stock purchase'], ['option', 'Option Opening Sale'], ['rollover', 'Rollover']];
 const columns = [['date', 'Purchase date'], ['quantity', 'Purchase shares'], ['priceUsd', 'Purchase price (USD/share)'], ['feesUsd', 'Purchase fees (USD)']];
 
-export function Profile({onClose, onName, holding, onInterestRate, valuationDate}) {
+export function Profile({onClose, onName, holding, onInterestRate, valuationDate, onAccountFunds}) {
   const dialog = useRef();
   const [name, setName] = useState(() => readStored(PROFILE, {}).name || '');
   const [interestRate, setInterestRate] = useState(() => readStored(PROFILE, {}).interestRate || {mode:'treasury'});
+  const [accountFunds,setAccountFunds]=useState(()=>readStored(PROFILE,{}).accountFunds || {});
   const [status, setStatus] = useState('');
   useEffect(() => {dialog.current.showModal();}, []);
   function save(event) {
@@ -22,15 +24,16 @@ export function Profile({onClose, onName, holding, onInterestRate, valuationDate
     try {
       const rate = interestRate.mode === 'manual' ? {mode:'manual',annual_percent:Number(interestRate.annual_percent)} : {mode:'treasury'};
       if (rate.mode === 'manual' && (interestRate.annual_percent === '' || !Number.isFinite(rate.annual_percent) || rate.annual_percent < -5 || rate.annual_percent > 25)) throw Error('Enter an annual interest yield between -5% and 25%.');
-      const next = {...readStored(PROFILE, {}), name: name.trim(), interestRate:rate};
+      const next = {...readStored(PROFILE, {}), name: name.trim(), interestRate:rate, accountFunds:serializeAccountFunds(accountFunds)};
       localStorage.setItem(PROFILE, JSON.stringify(next));
-      onName(next.name); onInterestRate?.(rate); onClose();
+      onName(next.name); onInterestRate?.(rate); onAccountFunds?.(next.accountFunds); onClose();
     } catch(error) {setStatus(error.message || 'Profile settings could not be saved in this browser.');}
   }
   return html`<dialog ref=${dialog} id="profile-settings" aria-labelledby="profile-title" onCancel=${onClose} onClose=${onClose}>
     <div className="settings-header"><h2 id="profile-title">Profile</h2><button type="button" aria-label="Close profile" onClick=${onClose}>×</button></div>
     <form onSubmit=${save}>
       <label>Profile name<${Input} maxLength="60" value=${name} onChange=${e => setName(e.target.value)}/></label>
+      <${AccountFundsSettings} holding=${holding} funds=${accountFunds} onChange=${setAccountFunds}/>
       <${InterestRateSettings} holding=${holding} valuationDate=${valuationDate} value=${interestRate} onChange=${setInterestRate}/>
       <div className="entry-actions"><button>Save profile</button><button type="button" onClick=${onClose}>Cancel</button></div>
       <p role="status">${status}</p>

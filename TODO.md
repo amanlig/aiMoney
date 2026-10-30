@@ -8,9 +8,12 @@ no next feature selected or scheduled. See [latest handoff](docs/progress-2026-1
 Requested October 28, 2026 (Vancouver), at session wrap-up. Planning only;
 implement when the user resumes and selects the next change.
 
-1. **Dynamic strike-price range:** let users change the minimum and maximum
-   replacement strikes used for selection, instead of the current fixed
-   purchase-price/stock-midpoint criteria. Make the active criteria explicit.
+1. **Dynamic strike criteria — implemented locally October 30:** optimizer-page
+   controls expose purchase-price multiplier (default 1.2×) and an inclusive
+   percentage range relative to midpoint (default 0% to uncapped; negatives allow
+   ITM calls while preserving the purchase floor). Changes apply only
+   through Refresh data & analyze; no separate Reevaluate button. Model, slider,
+   recommendations and CSV use the applied parameters. Awaiting deployment.
 2. **Dynamic expiry-date range:** let users choose the earliest and latest
    replacement expirations used for selection. Validate date order and use
    listed, unexpired contracts within the chosen range.
@@ -35,7 +38,7 @@ exports; fetching a wider contract range may require an explicit data refresh.
 No implementation or cloud deployment is authorized by this backlog entry alone.
 
 Latest cloud release: report-alignment-20261029-208da5c9d250. Interest-rate settings, rollover-field reset and numeric/text report heading alignment are deployed; no deployment pending.
-Latest session handoff: status/handoff-2026-10-29.md.
+Latest session handoff: status/handoff-2026-10-30.md. Configurable strike criteria are verified locally and await deployment.
 
 ## Outstanding — comparable Close versus Expire P/L
 
@@ -89,3 +92,16 @@ User canceled intraday liquidity-model research and quote-collection plans.
 Close today instead uses the stock midpoint less the held-call midpoint, scaled
 by shares and contracts. Midpoints estimate value; they do not guarantee fills.
 Actual Close execution entries and captured bid/ask snapshots remain unchanged.
+
+## Next session — October 30 checkpoint
+
+Discuss adding Cox–Ross–Rubinstein (CRR) binomial option pricing alongside
+Black–Scholes. Begin with model scope, American exercise handling, calibration
+and runtime implications before implementation. No pricing-model change has
+been implemented or authorized yet.
+
+Latest local dashboard changes: owned-position slider left, replacement-call
+criteria right; cash/buying power default to zero; over-budget rollover groups
+have transparent diagonal hatching bounded by the chart's top and bottom grid
+lines. Existing saved balances are preserved. Cloud deployment remains pending.
+See `status/handoff-2026-10-30.md` for the detailed checkpoint.

@@ -14,7 +14,7 @@ class Recommendations(unittest.TestCase):
     def test_server_snapshot_fixed_today_and_expire(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);(root/'reports').mkdir()
-            inputs=dict(account='RRSP',symbol='TEST',shares=100,contracts=1,held={},captured_at='capture',stock={'bidPrice':20,'askPrice':21},interest_rate=dict(rate=.05,selection={'mode':'manual','annual_percent':5}))
+            inputs=dict(initial_purchase_price_usd=20,account='RRSP',symbol='TEST',shares=100,contracts=1,held={},captured_at='capture',stock={'bidPrice':20,'askPrice':21},interest_rate=dict(rate=.05,selection={'mode':'manual','annual_percent':5}))
             (root/'reports/exit-optimizer-rrsp-test.json').write_text(json.dumps({'inputs':inputs}))
             baseline={'rows':[{'strategy':'Close now','mean':100}]}
             expire={'exit_mode':'expire','option_profit_usd':5}

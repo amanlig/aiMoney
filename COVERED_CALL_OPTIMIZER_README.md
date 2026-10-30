@@ -205,9 +205,11 @@ results, with earlier realized and combined results shown in Accounting details.
    Ambiguous or incomplete history is not automatically aggregated.
 2. Retrieve three months of completed Yahoo daily stock closes. Retrieve Questrade
    stock and listed call quotes, validating standard contracts, size and quote quality.
-3. Select replacement strikes **at least 1.20× the original USD stock purchase
-   price and strictly above the current stock midpoint**. There is no fixed upper
-   strike cap. In slider scenarios, use the selected hypothetical midpoint.
+3. Apply the optimizer page's configurable purchase multiplier and midpoint
+   percentage range. Defaults are **strike ≥ 1.20× original USD purchase price**
+   and **strike ≥ stock midpoint, with no upper cap**. Both range boundaries are
+   inclusive. Edit fields, then click **Refresh data & analyze** to apply them.
+   Slider scenarios use their hypothetical midpoint and the last applied rules.
 4. Include listed future expirations from tomorrow through one calendar year after
    the held call's expiry. Same-day expirations are excluded.
 5. Sample historical daily log returns to build 600 repeatable stock-price paths.
@@ -340,3 +342,13 @@ for replacement calls and discounting too; this is a par-yield proxy, not a full
 zero-curve implementation. Source and observation date are retained in snapshots
 and CSV. See [interest-rate settings](README.md#interest-rate-settings) for
 cache, unavailable-data behavior and browser preference storage.
+
+## Buying-power display check
+
+Profile → Settings supplies manually entered USD buying power for the selected
+account. The chart compares each top-three replacement's estimated net rollover
+debit with that amount and grays out those exceeding it, with a shortfall label.
+Ranks and monetary model results remain unchanged. Both Close and Expire use the
+same opening rollover funding. Missing USD buying power remains unchecked; CAD
+is not automatically converted and cash available is not added. This is a net
+cash comparison before future fees, not confirmation of broker margin eligibility.

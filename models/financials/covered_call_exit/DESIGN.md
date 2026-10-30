@@ -65,7 +65,7 @@ sequenceDiagram
 
 ## Inputs, constraints and calculations
 
-- Replacement strikes: at least **1.20 × original USD stock purchase price** and strictly above the **stock midpoint**, with no fixed upper cap. Slider scenarios use their hypothetical midpoint for this filter.
+- Replacement strikes use explicit configurable arguments. Defaults: **strike ≥ 1.20 × original USD purchase price** and **strike ≥ stock midpoint**, with no upper cap. The midpoint percentage range has inclusive boundaries and an optional maximum. Slider scenarios apply the same parameters to their hypothetical midpoint.
 - Expiry window: earliest listed future expiration (tomorrow or later) through 12 calendar months after the **held call's expiry**; unexpired,
   listed, verified standard calls only. Original held call is not a rollover.
 - Completed stock history: previous three calendar months, at least 40 daily

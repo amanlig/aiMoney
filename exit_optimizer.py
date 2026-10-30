@@ -198,6 +198,20 @@ def with_interest_rate(data, selection=None):
     return result
 
 
+def with_rollover_criteria(data, selection=None, check_coverage=True):
+    import copy
+    result=copy.deepcopy(data)
+    criteria=model.normalize_criteria(selection if selection is not None else data.get('rollover_criteria'))
+    result['rollover_criteria']=criteria
+    if check_coverage:
+        coverage=data.get('candidate_coverage',dict(minimum_strike=1.2*data['initial_purchase_price_usd'],maximum_strike=None))
+        spot=(data['stock']['bidPrice']+data['stock']['askPrice'])/2
+        requested=model.strike_bounds(data['initial_purchase_price_usd'],spot,**criteria)
+        if requested['minimum_strike']<coverage['minimum_strike']-1e-8 or (coverage.get('maximum_strike') is not None and (requested['maximum_strike'] is None or requested['maximum_strike']>coverage['maximum_strike']+1e-8)):
+            raise ValueError('The selected strike range extends beyond the saved quotes. Use Refresh data & analyze to retrieve the additional contracts.')
+    return result
+
+
 def scenario(request):
     account=request.get('account');symbol=request.get('symbol')
     select_holding(request)
@@ -206,8 +220,9 @@ def scenario(request):
     original=with_interest_rate(capture['inputs'],request.get('interest_rate'))
     rate=original['interest_rate']['rate']
     inputs=model.stock_price_scenario(original,request.get('stock_price'),rate=rate)
+    inputs=with_rollover_criteria(inputs,request.get('rollover_criteria'))
     at_capture=abs(request['stock_price']-(original['stock']['bidPrice']+original['stock']['askPrice'])/2)<1e-8
-    result=model.evaluate(inputs, rate=rate, close_at_mid=at_capture)
+    result=model.evaluate(inputs, rate=rate, close_at_mid=at_capture, **inputs['rollover_criteria'])
     return dict(inputs=inputs,result=result,scenario=dict(stock_price=request['stock_price'],
                 captured_stock_price=(original['stock']['bidPrice']+original['stock']['askPrice'])/2,
                 note='Hypothetical stock price; options repriced at captured implied volatility and spreads. No new market quotes fetched.'))
@@ -219,6 +234,7 @@ def run(request):
     if p.get('can_mark_expired'):raise ValueError('Complete this historical call’s buyback/rollover or actual expiry record before refreshing current quotes.')
     initial_purchase=p['stock_purchase']['priceUsd'] if p.get('stock_purchase') else purchase_price(account,symbol)
     if type(horizon) is not int or not 1<=horizon<=63: raise ValueError('Invalid horizon')
+    criteria=model.normalize_criteria(request.get('rollover_criteria'))
     today=datetime.now(ZoneInfo('America/Vancouver')).date()
     saved_refresh_token(ROOT/'.secrets/questrade.json')
     try:
@@ -238,8 +254,8 @@ def run(request):
     sid=found[0]['symbolId'];chain=api(f'symbols/{sid}/options');old_id=call_id(chain,p)
     stock=next(q for q in api('markets/quotes?'+urlencode({'ids':sid}))['quotes'] if q['symbolId']==sid)
     expiry=model.date.fromisoformat(p['call_expiry']);strike=float(p['call_strike_native_currency'])
-    listed=listed_calls(chain,p,(today+timedelta(days=1)).isoformat(),model.month_shift(expiry,12).isoformat(),1.2*initial_purchase,float('inf'))
-    listed={oid:record for oid,record in listed.items() if record['strike']>=1.2*initial_purchase}
+    listed=listed_calls(chain,p,(today+timedelta(days=1)).isoformat(),model.month_shift(expiry,12).isoformat(),criteria['purchase_price_multiplier']*initial_purchase,float('inf'))
+    listed={oid:record for oid,record in listed.items() if record['strike']>=criteria['purchase_price_multiplier']*initial_purchase}
     listed[old_id]=dict(strike=strike,expiry=p['call_expiry'],symbol_id=old_id)
     quotes={};candidates=[]
     ids=sorted(listed)
@@ -260,10 +276,12 @@ def run(request):
     captured=datetime.now(timezone.utc).isoformat()
     data=dict(initial_purchase_price_usd=initial_purchase,as_of=today.isoformat(),account=account,symbol=symbol,shares=p['shares'],contracts=p['call_contracts'],stock=metrics(stock),held=quotes[old_id],history=history,candidates=[q for oid,q in quotes.items() if oid!=old_id],captured_at=captured,
               sources=dict(purchase_price='Database stock_cost_basis.price_usd for this account and symbol',history='Yahoo Finance daily closes (unadjusted)',options='Questrade API verified listed standard calls',future_prices='Return bootstrap + midpoint-calibrated constant-volatility call approximation'))
+    data['rollover_criteria']=criteria
+    data['candidate_coverage']=dict(minimum_strike=criteria['purchase_price_multiplier']*initial_purchase,maximum_strike=None)
     data['position_id']=p['position_id']
     data['opening_reference']=opening_reference(account,symbol,data['held'],data['shares'],data['contracts'],data['position_id'])
     data=with_interest_rate(data,request.get('interest_rate'))
-    result=model.evaluate(data,horizon=horizon,rate=data['interest_rate']['rate'])
+    result=model.evaluate(data,horizon=horizon,rate=data['interest_rate']['rate'],**criteria)
     output=dict(inputs=data,result=result)
     target=capture_path(account,symbol,p['position_id'])
     temporary=target.with_suffix('.tmp');temporary.write_text(json.dumps(output,indent=2));temporary.replace(target)
