@@ -45,7 +45,7 @@ def preserve_other_purchases(db,account,symbol,basis,excluding=None):
         db.execute('UPDATE covered_positions SET base_json=? WHERE id=?',(json.dumps(base),row['id']))
 
 
-def create(data,path=DB):
+def create(data,path=DB,*,add_to_existing=True):
     value=purchase(data)
     with positions.transaction(path) as db:
         account,symbol=value['account'],value['symbol'];old=pool(db,account,symbol)
@@ -53,12 +53,37 @@ def create(data,path=DB):
         if old is None and existing:raise ValueError('Record the existing stock purchase before adding another holding for this stock and account.')
         if old is not None and not isinstance(old['price_usd'],(int,float)):
             raise ValueError('Record the existing USD purchase price before adding another holding for this stock and account.')
+        active=[r for r in existing if not positions.is_inactive(db,r['id'])]
+        target=None
+        if add_to_existing and active:
+            selected=data.get('position_id')
+            matches=[r for r in active if not selected or r['id']==selected]
+            if len(matches)!=1:raise ValueError('Select the current holding to add this stock purchase.')
+            target=matches[0]
+        elif data.get('position_id'):
+            raise ValueError('Choose an active holding for this stock and account.')
         preserve_other_purchases(db,account,symbol,old)
         old_quantity=old['quantity'] if old else 0
         quantity=old_quantity+value['quantity']
         price=((old['price_usd']*old_quantity if old else 0)+value['priceUsd']*value['quantity'])/quantity
         fees=(old['fees_usd'] or 0 if old else 0)+value['feesUsd']
         save_pool(db,account,symbol,quantity,price,fees,value['date'])
+        if target is not None:
+            base=json.loads(target['base_json']);previous=base.get('stock_purchase')
+            if not previous:
+                previous=dict(date=old['purchase_date'],quantity=target['shares'],priceUsd=old['price_usd'],
+                              feesUsd=(old['fees_usd'] or 0)*target['shares']/old['quantity'])
+            lots=base.get('stock_purchases') or [previous]
+            base['stock_purchases']=[*lots,{key:value[key] for key in ['date','quantity','priceUsd','feesUsd']}]
+            total_shares=target['shares']+value['quantity']
+            base['stock_purchase']=dict(date=previous['date'],quantity=total_shares,
+                priceUsd=(previous['priceUsd']*target['shares']+value['priceUsd']*value['quantity'])/total_shares,
+                feesUsd=(previous.get('feesUsd') or 0)+value['feesUsd'])
+            # Purchased shares are fresh capital, not reused retained shares.
+            positions.assign_share_sources(db,target,value['quantity'],'',inherit=False)
+            db.execute('UPDATE covered_positions SET shares=?,base_json=? WHERE id=?',
+                       (total_shares,json.dumps(base),target['id']))
+            return positions.holding(positions.get(db,target['id']))
         position_id=uuid.uuid4().hex
         base=dict(account=account,symbol=symbol,contract_multiplier=100,stock_purchase={key:value[key] for key in ['date','quantity','priceUsd','feesUsd']})
         db.execute("INSERT INTO covered_positions(id,account,symbol,shares,contracts,expiry,strike,base_json,created_at) VALUES (?,?,?,?,0,'',0,?,?)",
@@ -73,6 +98,22 @@ def update_purchase(position_id,data,path=DB):
         row=positions.get(db,position_id);base=json.loads(row['base_json']);previous=base.get('stock_purchase')
         if not previous:raise ValueError('Edit this imported holding’s shared stock purchase in Transactions.')
         value=purchase(dict(data,account=row['account'],symbol=row['symbol']))
+        lots=base.get('stock_purchases') or [previous]
+        index=data.get('lot_index')
+        if index is not None:
+            if isinstance(index,bool) or not isinstance(index,int) or not 0<=index<len(lots):
+                raise ValueError('Choose a valid stock purchase row.')
+            lots=[dict(lot) for lot in lots]
+            lots[index]={key:value[key] for key in ['date','quantity','priceUsd','feesUsd']}
+            shares=sum(lot['quantity'] for lot in lots)
+            value=dict(value,date=min(lot['date'] for lot in lots if lot.get('date')),
+                       quantity=shares,priceUsd=sum(lot['quantity']*lot['priceUsd'] for lot in lots)/shares,
+                       feesUsd=sum(lot.get('feesUsd') or 0 for lot in lots))
+        elif len(lots)>1:
+            raise ValueError('Edit an individual stock purchase row.')
+        else:
+            lots=[{key:value[key] for key in ['date','quantity','priceUsd','feesUsd']}]
+        base['stock_purchases']=lots
         if value['quantity']<row['contracts']*100:raise ValueError('Keep at least 100 shares for each current call.')
         old=pool(db,row['account'],row['symbol'])
         quantity=old['quantity']-previous['quantity']+value['quantity']

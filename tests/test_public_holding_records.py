@@ -19,7 +19,36 @@ class HoldingRecordsTests(unittest.TestCase):
         self.reports=self.root/'reports';self.reports.mkdir()
         self.purchase=dict(account='RRSP',symbol='RKLB',purchase_date='2025-01-02',shares=1000,price_usd=20,fees_usd=10)
 
-    def new(self,**changes):return records.create(dict(self.purchase,**changes),self.path)
+    def new(self,**changes):return records.create(dict(self.purchase,**changes),self.path,add_to_existing=False)
+
+    def test_add_purchase_keeps_holding_and_current_call(self):
+        first=self.new()
+        positions.save_opening(first['position_id'],dict(settlement_date='2025-01-03',expiry='2028-01-21',strike=25,contracts=10,price_usd=2,fees_usd=0,reviewed=True),path=self.path)
+        added=records.create(dict(self.purchase,shares=500,price_usd=30,fees_usd=5),self.path)
+        self.assertEqual(added['position_id'],first['position_id'])
+        self.assertEqual(added['shares'],1500)
+        self.assertEqual(added['call_contracts'],10)
+        self.assertEqual(added['call_strike_native_currency'],25)
+        self.assertAlmostEqual(added['stock_purchase']['priceUsd'],35000/1500)
+        self.assertEqual(added['stock_purchase']['feesUsd'],15)
+        self.assertEqual(len(positions.synchronize([],self.path)),1)
+        basis=stock_basis.get('RRSP','RKLB','USD',self.path)
+        self.assertEqual(basis['quantity'],1500)
+        self.assertAlmostEqual(basis['totalCost'],35015)
+        self.assertEqual(len(added['stock_purchases']),2)
+        other=records.create(dict(self.purchase,account='TFSA'),self.path)
+        self.assertNotEqual(other['position_id'],first['position_id'])
+        self.assertEqual(other['shares'],1000)
+
+    def test_edit_one_purchase_preserves_other_rows(self):
+        first=self.new()
+        records.create(dict(self.purchase,shares=500,price_usd=30,fees_usd=5,purchase_date='2025-02-02'),self.path)
+        edited=records.update_purchase(first['position_id'],dict(self.purchase,lot_index=1,shares=400,price_usd=40,fees_usd=8,purchase_date='2025-03-03'),self.path)
+        self.assertEqual(edited['shares'],1400)
+        self.assertEqual(edited['stock_purchases'][0],dict(date='2025-01-02',quantity=1000,priceUsd=20,feesUsd=10))
+        self.assertEqual(edited['stock_purchases'][1],dict(date='2025-03-03',quantity=400,priceUsd=40,feesUsd=8))
+        self.assertAlmostEqual(edited['stock_purchase']['priceUsd'],36000/1400)
+        self.assertEqual(stock_basis.get('RRSP','RKLB','USD',self.path)['totalCost'],36018)
 
     def remove(self,h,**changes):
         return records.delete(h['position_id'],dict(confirmed=True,position_revision=h['position_revision'],**changes),self.path,self.reports)
@@ -74,6 +103,9 @@ class HoldingRecordsTests(unittest.TestCase):
             ref=exit_optimizer.opening_reference('RRSP','RKLB',dict(expiry='2028-01-21',strike=25),1000,10,first['position_id'])
         self.assertEqual(ref['stock_price_usd'],22)
         self.assertEqual(ref['stock_cost_usd'],22020)
+        self.assertEqual(ref['all_purchases_total_usd'],37000)
+        self.assertEqual(ref['all_purchases_shares'],1500)
+        self.assertAlmostEqual(ref['all_purchases_price_usd'],37000/1500)
 
     def test_imported_holding_does_not_return_after_delete_or_recreate(self):
         raw=dict(account='RRSP',symbol='RKLB',shares=1000,call_contracts=10,call_expiry='2028-01-21',call_strike_native_currency=25)

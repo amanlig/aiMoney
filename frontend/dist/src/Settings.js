@@ -48,6 +48,7 @@ export function Settings({onClose, holding}) {
   const [holdings, setHoldings] = useState([]);
   const [activeHolding, setActiveHolding] = useState(holding || null);
   const [editor, setEditor] = useState(null);
+  const [newPurchase,setNewPurchase]=useState(null);
   const [lastExpiration,setLastExpiration]=useState(null);
   const [reportRevision,setReportRevision]=useState(0);
   const [status, setStatus] = useState('Loading saved stock purchases…');
@@ -69,7 +70,9 @@ export function Settings({onClose, holding}) {
       const id=JSON.stringify([basis.account,basis.symbol]);
       if(!unique.has(id))unique.set(id,{id,account:basis.account,symbol:basis.symbol,date:basis.date || '',quantity:basis.quantity,priceUsd:basis.priceUsd ?? '',feesUsd:basis.feesUsd ?? 0});
     }
-    for(const h of choices.holdings)if(h.stock_purchase)unique.set(h.position_id,{id:h.position_id,owned_position_id:h.position_id,account:h.account,symbol:h.symbol,...h.stock_purchase});
+    for(const h of choices.holdings)if(h.stock_purchase)(h.stock_purchases || [h.stock_purchase]).forEach((lot,index)=>{
+      const id=`${h.position_id}:${index}`;unique.set(id,{id,owned_position_id:h.position_id,lot_index:index,account:h.account,symbol:h.symbol,...lot});
+    });
     const purchases = [...unique.values()];
     setRows(purchases);
     setReady(true); setStatus('Stock purchases are saved in USD.');setReportRevision(value => value+1);
@@ -79,7 +82,8 @@ export function Settings({onClose, holding}) {
   async function save(event) {
     event.preventDefault(); setBusy(true);
     try {
-      const bases = rows.filter(selectedPurchase).map(row => {
+      const selectedRows=rows.filter(selectedPurchase).filter(row=>!activeHolding.stock_purchase || row.id===event.nativeEvent.submitter?.value);
+      const bases = selectedRows.map(row => {
         const quantity = Number(row.quantity), priceUsd = Number(row.priceUsd), feesUsd = Number(row.feesUsd);
         if (!row.date || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(priceUsd) || priceUsd <= 0
           || row.feesUsd === '' || !Number.isFinite(feesUsd) || feesUsd < 0) throw Error('Enter a purchase date, positive shares and USD price, and fees (use 0 for none).');
@@ -87,13 +91,21 @@ export function Settings({onClose, holding}) {
           quantity, priceUsd, feesUsd, fx: null, totalCost: quantity * priceUsd + feesUsd};
       });
       if(activeHolding.stock_purchase) {
-        const basis=bases[0];await api(`/api/positions/${activeHolding.position_id}/purchase`,{body:{purchase_date:basis.date,shares:basis.quantity,price_usd:basis.priceUsd,fees_usd:basis.feesUsd}});
+        const basis=bases[0];await api(`/api/positions/${activeHolding.position_id}/purchase`,{body:{purchase_date:basis.date,shares:basis.quantity,price_usd:basis.priceUsd,fees_usd:basis.feesUsd,lot_index:selectedRows[0].lot_index}});
         await load(holdingIdentity(activeHolding));
       } else {await api('/api/stock-cost-basis', {body: {bases}});await load(holdingIdentity(activeHolding));}
       setStatus('Stock purchases saved in USD. Refresh data & analyze to update the chart.');
     } catch (e) {setStatus(e.message);} finally {setBusy(false);}
   }
-  const selectedPurchase = row => activeHolding?.stock_purchase ? row.id===activeHolding.position_id : !row.owned_position_id && row.account===activeHolding?.account && row.symbol===activeHolding?.symbol;
+  async function createPurchase(event) {
+    event.preventDefault();setBusy(true);
+    try {
+      const h=await api('/api/holdings',{body:{account:activeHolding.account,symbol:activeHolding.symbol,position_id:activeHolding.position_id,
+        purchase_date:newPurchase.date,shares:Number(newPurchase.quantity),price_usd:Number(newPurchase.priceUsd),fees_usd:Number(newPurchase.feesUsd)}});
+      await load(h.position_id);setNewPurchase(null);setStatus('New stock purchase created.');
+    } catch(error) {setStatus(error.message);} finally {setBusy(false);}
+  }
+  const selectedPurchase = row => activeHolding?.stock_purchase ? row.owned_position_id===activeHolding.position_id : !row.owned_position_id && row.account===activeHolding?.account && row.symbol===activeHolding?.symbol;
   function navigateTab(event, current) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
@@ -104,7 +116,7 @@ export function Settings({onClose, holding}) {
   return html`<dialog ref=${dialog} id="transaction-records" aria-labelledby="records-title" onCancel=${() => onClose(holdingIdentity(activeHolding))} onClose=${() => onClose(holdingIdentity(activeHolding))}>
     <div className="settings-header"><h2 id="records-title">Transactions</h2><button type="button" aria-label="Close transactions" onClick=${() => onClose(holdingIdentity(activeHolding))}>×</button></div>
     <div className="purchase-controls"><label>Holding<select aria-label="Holding" value=${activeHolding ? holdingIdentity(activeHolding) : ''} disabled=${!ready || busy || !holdings.length} onChange=${e => {
-      setEditor(null); setActiveHolding(holdings.find(h => holdingIdentity(h) === e.target.value));
+      setEditor(null); setNewPurchase(null); setActiveHolding(holdings.find(h => holdingIdentity(h) === e.target.value));
     }}>${holdings.map(h => html`<option key=${holdingIdentity(h)} value=${holdingIdentity(h)}>${holdingLabel(h)}</option>`)}</select></label>
       <button type="button" disabled=${busy || !ready} onClick=${() => setEditor('new')}>Add position</button>
       <button type="button" disabled=${busy || !activeHolding?.position_id} onClick=${() => setEditor('allocation')}>Allocate shares</button>
@@ -113,13 +125,22 @@ export function Settings({onClose, holding}) {
     ${lastExpiration ? html`<p role="status">${lastExpiration.symbol} call expired worthless. Realized option P/L: ${lastExpiration.realized_option_pl_usd==null ? 'Unavailable' : money(lastExpiration.realized_option_pl_usd)}. ${lastExpiration.shares_retained} shares retained.</p>` : null}
     <div className="settings-tabs" role="tablist" aria-label="Transaction type">${transactionTabs.map(([id, title]) => html`<button key=${id} type="button" role="tab" id=${`settings-tab-${id}`} aria-controls=${`settings-panel-${id}`} aria-selected=${tab === id} tabIndex=${tab === id ? 0 : -1} ref=${node => {tabButtons.current[id] = node;}} onKeyDown=${e => navigateTab(e, id)} onClick=${() => setTab(id)}>${title}</button>`)}</div>
     <div role="tabpanel" id="settings-panel-stock" aria-labelledby="settings-tab-stock" hidden=${tab !== 'stock'}>
-    <form onSubmit=${save}>
-      <p>Enter one purchase lot or a combined average price using total shares and total fees. All amounts are USD. Enter 0 if there are no fees.</p>
-      <div className="table-scroll"><table><thead><tr><th>Holding / account</th>${columns.map(([field, title]) => html`<th key=${field} scope="col">${title}</th>`)}<th>Total cost (USD)</th></tr></thead>
+    <button type="button" disabled=${busy || !ready || !activeHolding || !!newPurchase} onClick=${() => setNewPurchase({date:'',quantity:'',priceUsd:'',feesUsd:'0'})}>New stock purchase</button>
+    <form onSubmit=${newPurchase ? createPurchase : save}>
+      <p>Each row records a separate stock purchase. Shares and weighted average cost are combined for the holding. All amounts are USD. Enter 0 if there are no fees.</p>
+      <div className="table-scroll"><table><thead><tr><th>Holding / account</th>${columns.map(([field, title]) => html`<th key=${field} scope="col">${title}</th>`)}<th>Total cost (USD)</th><th>Action</th></tr></thead>
         <tbody>${rows.filter(selectedPurchase).map(row => html`<tr key=${row.id}><td>${row.account} · ${row.symbol}</td>
-          ${columns.map(([field, title]) => html`<td key=${field}><${Input} aria-label=${`${row.account} ${row.symbol} ${title}`} type=${field === 'date' ? 'date' : 'number'} step="any" min=${field === 'feesUsd' ? '0' : '0.00000001'} required value=${row[field]} onChange=${e => change(row.id, field, e.target.value)}/></td>`)}
-          <td>${row.quantity !== '' && row.priceUsd !== '' && row.feesUsd !== '' ? money(Number(row.quantity) * Number(row.priceUsd) + Number(row.feesUsd)) : '—'}</td></tr>`)}</tbody></table></div>
-      <div className="entry-actions"><button disabled=${busy || !ready || !activeHolding}>Save stock purchase</button><button type="button" onClick=${onClose}>Cancel</button></div>
+          ${columns.map(([field, title]) => html`<td key=${field}><${Input} aria-label=${`${row.account} ${row.symbol} ${title}`} type=${field === 'date' ? 'date' : 'number'} step="any" min=${field === 'feesUsd' ? '0' : '0.00000001'} required disabled=${busy || !!newPurchase} value=${row[field]} onChange=${e => change(row.id, field, e.target.value)}/></td>`)}
+          <td>${row.quantity !== '' && row.priceUsd !== '' && row.feesUsd !== '' ? money(Number(row.quantity) * Number(row.priceUsd) + Number(row.feesUsd)) : '—'}</td><td><button value=${row.id} aria-label="Save stock purchase" title="Edit and save this stock purchase" disabled=${busy || !ready || !activeHolding || !!newPurchase}><span aria-hidden="true">✎</span></button></td></tr>`)}
+        ${newPurchase ? html`<tr data-new-stock-purchase="true"><td>${activeHolding.account} · ${activeHolding.symbol} · New</td>
+          ${columns.map(([field,title])=>html`<td key=${field}><${Input} aria-label=${`New ${title}`} required disabled=${busy}
+            type=${field==='date' ? 'date' : 'number'} step="any" min=${field==='feesUsd' ? '0' : '0.00000001'}
+            value=${newPurchase[field]} onChange=${event=>setNewPurchase({...newPurchase,[field]:event.target.value})}/></td>`)}
+          <td>${newPurchase.quantity!=='' && newPurchase.priceUsd!=='' && newPurchase.feesUsd!=='' ? money(Number(newPurchase.quantity)*Number(newPurchase.priceUsd)+Number(newPurchase.feesUsd)) : '—'}</td>
+          <td><div className="purchase-row-actions"><button disabled=${busy} aria-label="Save new stock purchase" title="Save new stock purchase">✓</button>
+          <button type="button" disabled=${busy} aria-label="Cancel new stock purchase" title="Cancel new stock purchase" onClick=${()=>setNewPurchase(null)}>×</button></div></td>
+        </tr>` : null}</tbody></table></div>
+      <div className="entry-actions"><button type="button" onClick=${() => onClose(holdingIdentity(activeHolding))}>Cancel</button></div>
       <p role="status">${status}</p>
     </form></div>
     <div role="tabpanel" id="settings-panel-option" aria-labelledby="settings-tab-option" hidden=${tab !== 'option'}><${PremiumForm} key=${holdingIdentity(activeHolding)} initialHolding=${activeHolding} onSaved=${() => load(holdingIdentity(activeHolding))}/></div>

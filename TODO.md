@@ -105,3 +105,26 @@ criteria right; cash/buying power default to zero; over-budget rollover groups
 have transparent diagonal hatching bounded by the chart's top and bottom grid
 lines. Existing saved balances are preserved. Cloud deployment remains pending.
 See `status/handoff-2026-10-30.md` for the detailed checkpoint.
+
+## Deployment checkpoint — November 2
+
+Current local purchase/dashboard changes deployed successfully as
+`purchase-rows-20261102-eef483c564ca`; earlier pending-deployment notes are
+superseded. Detailed checkpoint: `status/handoff-2026-11-02.md`.
+CRR pricing remains a future discussion item.
+
+## Future work — predict call-selling profitability
+
+Explore a predictive model using historical stock prices and the user's
+validated trade outcomes/profitability to estimate whether selling call options
+will produce a profit and the expected dollar amount. This is a research and
+design backlog item; implementation has not started.
+
+- Define the prediction target: option-only net profit versus total covered-call
+  position profit, including fees, buybacks, rollovers and assignment outcomes.
+- Use historical stock prices and validated transaction outcomes; assess what
+  historical option premiums, strikes, expiries and volatility data are needed.
+- Evaluate probability of profit and expected net profit with uncertainty, using
+  chronological out-of-sample validation and safeguards against future-data
+  leakage. Compare with the existing simulation baseline and assess whether
+  sufficient validated trades exist before choosing a model.

@@ -380,3 +380,18 @@ Expire assumes the replacement call expires worthless and retains the shares,
 so its option-only P/L is not directly comparable with full-position Close P/L.
 The **AI recommendation** is separate: it interprets the calculated results and
 selected objective rather than running inside `model.py`.
+
+The dashboard's **All stock purchases** amount and solid chart reference line
+show the combined purchase value for the selected account and ticker, excluding
+fees. The per-share value is the share-weighted average across those purchases.
+Position P/L continues to use that position's allocated purchase cost and fees.
+
+**New stock purchase** adds an inline entry row for the selected stock/account.
+Saving adds shares, purchase cost and fees to the current holding and updates its
+weighted average price while preserving its call and transaction history.
+Creating a purchase through New for an existing stock/account uses the same
+behavior; a new holding is created only when there is no active matching holding.
+
+Each saved stock purchase stays in its own Transactions row with its purchase
+date, shares, price and fees. The pencil saves only that row. Holding totals
+and weighted average costs are recalculated from the purchase entries.

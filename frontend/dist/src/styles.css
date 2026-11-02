@@ -113,3 +113,6 @@ section{margin:14px 0;padding:18px}h2{font-size:19px;margin:0 0 14px}h2 small{fo
 .position-control-grid .rollover-rule-fields fieldset{padding:10px 12px}
 .position-control-grid legend{max-width:calc(100% - 12px);white-space:normal}
 @media(max-width:900px){.position-control-grid{grid-template-columns:minmax(0,1fr)}}
+
+.purchase-row-actions{display:flex;flex-wrap:nowrap;gap:6px;align-items:center}
+.purchase-row-actions button{flex-shrink:0;margin:0}

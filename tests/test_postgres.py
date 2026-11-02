@@ -157,7 +157,7 @@ class PostgreSQLTests(unittest.TestCase):
         with patch.dict(os.environ,DATABASE_URL=os.environ['TEST_DATABASE_URL']):
             purchase=dict(account='RRSP',symbol='DELETESTOCK',purchase_date='2025-01-02',shares=100,price_usd=20,fees_usd=1)
             first=holding_records.create(purchase)
-            second=holding_records.create(dict(purchase,price_usd=30))
+            second=holding_records.create(dict(purchase,price_usd=30),add_to_existing=False)
             positions.save_opening(first['position_id'],dict(expiry='2025-05-30',strike=23,contracts=1,settlement_date='2025-05-13',price_usd=.65,reviewed=True))
             self.assertTrue(positions.history(first['position_id'])['position']['can_mark_expired'])
             self.assertFalse(any(r['id']==first['position_id'] for r in positions.expirations()))

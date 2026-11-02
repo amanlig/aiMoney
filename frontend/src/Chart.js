@@ -42,7 +42,8 @@ export function Chart({analysis, baseline, modes, onMode, scenarioPrice, account
     return {realized,unrealized,total,segments,positive:Math.max(0,total || 0),negative:Math.min(0,total || 0)};
   };
   const sale = row => row.cash_flows.stock_sale + row.cash_flows.option_sale;
-  const high = Math.max(1, reference.stock_total_usd || 0,
+  const purchaseTotal=reference.all_purchases_total_usd ?? reference.stock_total_usd;
+  const high = Math.max(1, purchaseTotal || 0,
     ...rows.map(row => Math.max(sale(row), Math.abs(row.cash_flows.option_purchase), parts(row).positive || 0))) * 1.16;
   const low = Math.min(0, ...rows.map(row => parts(row).negative || 0)) * 1.12;
   const buyingPower=availableBuyingPower(accountFunds,analysis.inputs.account);
@@ -70,7 +71,7 @@ export function Chart({analysis, baseline, modes, onMode, scenarioPrice, account
         <defs><pattern id="buying-power-hatch" width="18" height="18" patternUnits="userSpaceOnUse"><path d="M-4 4L4 -4M0 18L18 0M14 22L22 14" stroke="#f5ca6b" strokeWidth="1" strokeOpacity="0.38" fill="none"/></pattern></defs>
         ${Array.from({length: 9}, (_, i) => {const value = low + (high - low) * i / 8; return html`<g key=${i}><line x1=${left} x2=${chartWidth - 18} y1=${y(value)} y2=${y(value)} stroke="#333"/><text x=${left - 10} y=${y(value) + 4} textAnchor="end" fontSize="12">${money(value)}</text></g>`;})}
         <line x1=${left} x2=${chartWidth - 18} y1=${y(0)} y2=${y(0)} stroke="#7e8c9e"/>
-        ${Number.isFinite(reference.stock_total_usd) ? html`<line x1=${left} x2=${chartWidth - 18} y1=${y(reference.stock_total_usd)} y2=${y(reference.stock_total_usd)} stroke="#8b602b" strokeWidth="2"/>` : null}
+        ${Number.isFinite(purchaseTotal) ? html`<line x1=${left} x2=${chartWidth - 18} y1=${y(purchaseTotal)} y2=${y(purchaseTotal)} stroke="#8b602b" strokeWidth="2"/>` : null}
         ${rows.map((row, i) => {
           const cx = left + step * (i + .5), w = 30, pnl = parts(row), gain = pnl.total, expire = row.exit_mode === 'expire';
           const today = row.strategy === 'Close now', scenario = row.strategy === 'Close at slider price', closing = today || scenario;

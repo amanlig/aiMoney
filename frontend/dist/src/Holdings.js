@@ -2,9 +2,9 @@ import {Input} from './Input.js';
 import {html,useState,useEffect,useRef} from './ui.js';
 import {api,money,holdingLabel} from './api.js';
 
-export function NewHolding({holding,onClose,onSaved}) {
+export function NewHolding({holding,onClose,onSaved,currentStock=false}) {
   const dialog=useRef();
-  const [fields,setFields]=useState({account:holding?.account || 'RRSP',symbol:'',purchase_date:'',shares:'',price_usd:'',fees_usd:'0'});
+  const [fields,setFields]=useState({account:holding?.account || 'RRSP',symbol:currentStock ? holding?.symbol || '' : '',purchase_date:'',shares:'',price_usd:'',fees_usd:'0'});
   const [busy,setBusy]=useState(false),[status,setStatus]=useState('');
   useEffect(() => {dialog.current.showModal();},[]);
   async function save(event) {
@@ -13,12 +13,12 @@ export function NewHolding({holding,onClose,onSaved}) {
     catch(error){setStatus(error.message);setBusy(false);}
   }
   return html`<dialog ref=${dialog} id="new-holding" aria-labelledby="new-holding-title" onCancel=${event => {if(busy)event.preventDefault();else onClose();}} onClose=${() => {if(!busy)onClose();}}>
-    <div className="settings-header"><h2 id="new-holding-title">New holding</h2><button type="button" aria-label="Cancel new holding" disabled=${busy} onClick=${onClose}>×</button></div>
+    <div className="settings-header"><h2 id="new-holding-title">${currentStock ? 'New stock purchase' : 'New holding'}</h2><button type="button" aria-label="Cancel new holding" disabled=${busy} onClick=${onClose}>×</button></div>
     <p>Start with the stock purchase. Add the option opening sale in Transactions when ready. All amounts are USD.</p>
-    <form onSubmit=${save}><div className="fields"><label>Account<select disabled=${busy} value=${fields.account} onChange=${e => setFields({...fields,account:e.target.value})}>${['RRSP','TFSA','LIRA'].map(account => html`<option key=${account}>${account}</option>`)}</select></label>
-      ${[['symbol','Ticker','text'],['purchase_date','Purchase date','date'],['shares','Shares purchased','number'],['price_usd','Purchase price (USD/share)','number'],['fees_usd','Purchase fees (USD)','number']].map(([key,label,type]) => html`<label key=${key}>${label}<${Input} required disabled=${busy} type=${type} min=${key==='fees_usd' ? '0' : '0.00000001'} step="any" value=${fields[key]} onChange=${e => setFields({...fields,[key]:key==='symbol' ? e.target.value.toUpperCase() : e.target.value})}/></label>`)}</div>
+    <form onSubmit=${save}><div className="fields"><label>Account<select aria-label="Account" disabled=${busy || currentStock} value=${fields.account} onChange=${e => setFields({...fields,account:e.target.value})}>${['RRSP','TFSA','LIRA'].map(account => html`<option key=${account}>${account}</option>`)}</select></label>
+      ${[['symbol','Ticker','text'],['purchase_date','Purchase date','date'],['shares','Shares purchased','number'],['price_usd','Purchase price (USD/share)','number'],['fees_usd','Purchase fees (USD)','number']].map(([key,label,type]) => html`<label key=${key}>${label}<${Input} required disabled=${busy || currentStock && key==='symbol'} type=${type} min=${key==='fees_usd' ? '0' : '0.00000001'} step="any" value=${fields[key]} onChange=${e => setFields({...fields,[key]:key==='symbol' ? e.target.value.toUpperCase() : e.target.value})}/></label>`)}</div>
       <p>Total stock cost: ${fields.shares!=='' && fields.price_usd!=='' && fields.fees_usd!=='' ? money(Number(fields.shares)*Number(fields.price_usd)+Number(fields.fees_usd)) : '—'}</p>
-      <div className="entry-actions"><button disabled=${busy}>Create holding</button><button type="button" disabled=${busy} onClick=${onClose}>Cancel</button></div><p role="status">${status}</p>
+      <div className="entry-actions"><button disabled=${busy}>${currentStock ? 'Create stock purchase' : 'Create holding'}</button><button type="button" disabled=${busy} onClick=${onClose}>Cancel</button></div><p role="status">${status}</p>
     </form>
   </dialog>`;
 }

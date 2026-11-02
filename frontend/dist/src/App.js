@@ -217,7 +217,7 @@ export function Dashboard() {
         ${analysis.inputs.interest_rate?.observed_on ? ` · Observed ${analysis.inputs.interest_rate.observed_on}` : ''}
         ${analysis.inputs.interest_rate?.warning ? ` · ${analysis.inputs.interest_rate.warning}` : ''}.</p>
       <div className="legend">${[['#26856c', 'Stock sale / assignment'], ['#d45b68', 'Purchase calls to close'], ['#518acb', 'Sell replacement calls'], ['#7955ac', 'Net P/L']].map(([color, label]) => html`<span key=${label} style=${{'--color': color}}>${label}</span>`)}</div>
-      <div id="opening-reference"><div>Original stock purchase · solid line<strong>${money(openingReference.stock_total_usd)}</strong><small>${Number.isFinite(openingReference.stock_price_usd) ? money(openingReference.stock_price_usd) + ' per share · fees excluded' : 'Save the original stock purchase for this holding'}</small></div>
+      <div id="opening-reference"><div>All stock purchases · solid line<strong>${money(openingReference.all_purchases_total_usd ?? openingReference.stock_total_usd)}</strong><small>${Number.isFinite(openingReference.all_purchases_price_usd ?? openingReference.stock_price_usd) ? money(openingReference.all_purchases_price_usd ?? openingReference.stock_price_usd) + ' per share · weighted average · fees excluded' : 'Save the original stock purchase for this holding'}</small></div>
         <div id="realized-cash-summary">Realized option cash<strong>${realizedCash===null ? openingReference.history_status==='incomplete' ? 'History incomplete' : 'Unavailable' : money(realizedCash)}</strong><small>Recorded premiums − buybacks − option fees · includes the open-call premium</small>
         </div>
       </div>

@@ -171,7 +171,9 @@ def opening_reference(account, symbol, held, shares, contracts, position_id=None
     own=saved.get('position',{}).get('stock_purchase') if position_id else None
     if own:
         price=own['priceUsd'];stock_fees=(own.get('feesUsd') or 0)*shares/own['quantity']
-    reference=dict(stock_price_usd=price, stock_total_usd=price*shares,
+    reference=dict(all_purchases_total_usd=basis['priceUsd']*basis['quantity'],
+                   all_purchases_price_usd=basis['priceUsd'], all_purchases_shares=basis['quantity'],
+                   stock_price_usd=price, stock_total_usd=price*shares,
                    stock_cost_usd=price*shares+stock_fees, stock_fees_usd=stock_fees,
                    option_total_usd=None, option_price_usd=None,
                    source='Saved USD purchase price and proportional purchase fees; opening sale plus linked rollovers, each counted once')
