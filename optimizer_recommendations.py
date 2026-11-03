@@ -29,6 +29,10 @@ def snapshot(request):
     modes = request.get('modes', {})
     if not isinstance(modes, dict) or len(modes) > 100 or any(v not in ('close', 'expire') for v in modes.values()):
         raise ValueError('Invalid rollover exit choices.')
+    close_mode=request.get('close_mode','close')
+    if close_mode not in ('close','assigned','buyback'):raise ValueError('Invalid current-position choice.')
+    close=next(r for r in baseline['rows'] if r['strategy']=='Close now')
+    if close_mode in baseline.get('close_alternatives',{}):close=baseline['close_alternatives'][close_mode]
     rolls = []
     for row in analysis['top_choices'][:3]:
         key = f"{h['account']}|{h['symbol']}|"+(h.get('position_id')+'|' if h.get('position_id') else '')+f"{row['expiry']}|{row['strike']:g}"
@@ -38,13 +42,13 @@ def snapshot(request):
                 position={k:original[k] for k in ('account','symbol','shares','contracts','held','position_id') if k in original},
                 opening_reference=original.get('opening_reference'), sources=original.get('sources'),
                 captured_stock=original['stock'], hypothetical_stock_price=request['stock_price'],
-                close_today=next(r for r in baseline['rows'] if r['strategy']=='Close now'),
+                close_today=close, close_mode=close_mode,
                 displayed_rollovers=rolls, assumptions=analysis['assumptions'],
                 rollover_criteria=criteria, interest_rate=original['interest_rate'], model_version=analysis['version'], search=analysis['search'],
                 sale_floor_usd=analysis['minimum_stock_sale_price_usd'],
                 limitations=['No live news, macro health, account cash balance or broker margin calculation.',
                              'Close today is fixed at captured quotes; rollovers use the selected slider scenario.',
-                             'Expire is conditional on worthless expiry; retained stock value is excluded from option-only P&L.'])
+                             'Expire and Buyback show option-only P/L, excluding retained stock value. Assigned is hypothetical; assignment timing is not selectable.'])
 
 
 def generate(request):

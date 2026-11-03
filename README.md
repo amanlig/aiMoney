@@ -395,3 +395,34 @@ behavior; a new holding is created only when there is no active matching holding
 Each saved stock purchase stays in its own Transactions row with its purchase
 date, shares, price and fees. The pencil saves only that row. Holding totals
 and weighted average costs are recalculated from the purchase entries.
+
+Rollover groups show future stock and replacement-call bid/ask immediately above
+Roll cash needed. These are undiscounted per-share means across the simulation
+paths at the stated trading-day horizon, using the model's fixed spreads. They
+are not entry quotes. Assignment settles at the strike; contracts already
+expired at the horizon have no quote. Expire mode states its conditional $0
+payoff instead of a future option quote. Older saved analyses without quote
+summaries ask for Refresh data & analyze; values are never inferred from net cash.
+
+The first chart group offers **Close**, **Assigned** and **Buyback** comparisons.
+Close preserves the captured midpoint estimate. Assigned assumes covered shares
+are sold at the held strike without buying back the call; it is hypothetical,
+not an instruction to cause assignment. Any excess shares remain valued at the
+captured stock midpoint. Buyback closes only the held call at its captured ask,
+retains shares, and displays option-only P/L separately from retained stock value.
+The owned-position summary and recommendation snapshot follow the selection.
+Switching modes performs no market refresh, model-path rerun or trade recording;
+rollover rankings and the original Close benchmark remain fixed.
+
+Covered-call analysis accepts holdings with at least 100 shares per call,
+including excess uncovered shares (for example, 300 shares and 2 calls). Only
+the covered shares are assigned at the strike. In Close-mode simulations, excess
+shares are sold at the estimated horizon bid; Expire and Buyback retain all
+shares. Holdings with insufficient shares to cover the calls remain rejected.
+
+For the first chart group's **Close** choice, only the covered portion is
+unwound: sell contracts × 100 shares and buy back the held calls at captured
+midpoints. Excess shares remain owned and appear in light teal as retained
+stock value, not exit cash. Full-position P/L includes their captured midpoint
+value; the simulation comparison benchmark retains the same total marked value.
+Assigned and Buyback also display retained stock value in light teal.

@@ -136,6 +136,7 @@ class RecommendationRequest(ScenarioRequest):
     goal: Literal['free_cash', 'reduce_risk', 'keep_exposure', 'compare']
     captured_at: str = Field(min_length=1, max_length=100)
     modes: dict[str, Literal['close', 'expire']] = Field(default_factory=dict)
+    close_mode: Literal['close','assigned','buyback'] = 'close'
 
 
 class BasisRequest(BaseModel):

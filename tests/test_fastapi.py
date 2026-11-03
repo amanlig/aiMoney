@@ -180,10 +180,15 @@ class ApiContracts(unittest.TestCase):
             self.assertEqual(self.client.get('/api/optimizer-recommendations/history').json(), {'runs':[{'id':1}]})
         with patch.object(server.optimizer_recommendations, 'generate', return_value={'assessment':'synthetic'}) as generate:
             self.assertEqual(self.post('/api/optimizer-recommendations', body).json()['assessment'], 'synthetic')
-            generate.assert_called_once_with(body)
+            generate.assert_called_once_with(dict(body,close_mode='close'))
         with patch.object(server.optimizer_recommendations, 'generate', side_effect=server.optimizer_assessments.AssessmentError('OpenAI connection failed.')):
             self.assertEqual(self.post('/api/optimizer-recommendations', body).status_code, 502)
         self.assertFalse(server.ASSESSMENT_LOCK.locked())
+        for mode in ['assigned','buyback']:
+            with patch.object(server.optimizer_recommendations,'generate',return_value={}) as generate:
+                self.assertEqual(self.post('/api/optimizer-recommendations',dict(body,close_mode=mode)).status_code,200)
+                self.assertEqual(generate.call_args.args[0]['close_mode'],mode)
+        self.assertEqual(self.post('/api/optimizer-recommendations',dict(body,close_mode='invalid')).status_code,422)
 
     def test_macro_worker_is_started_and_stopped_by_lifespan(self):
         with patch.object(server.MacroFeed, 'run') as run:

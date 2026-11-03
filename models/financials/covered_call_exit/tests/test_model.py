@@ -36,6 +36,86 @@ class ExitModelTests(unittest.TestCase):
         self.assertIsNone(close['net_profit_usd'])
         self.assertIsNone(expire['option_profit_usd'])
 
+    def test_extra_shares_allowed_and_included_after_assignment(self):
+        import math
+        data=self.fixture()
+        data['candidates']=[dict(data['held'],validated=True,strike=35,expiry='2026-10-23',bidPrice=5.2,askPrice=5.4)]
+        base=m.evaluate(data,paths=100,min_strike_above_midpoint_pct=-100)
+        data['shares']=600
+        extra=m.evaluate(data,paths=100,min_strike_above_midpoint_pct=-100)
+        a=base['top_choices'][0];b=extra['top_choices'][0]
+        extra_sale=100*b['simulation_quotes']['stock']['bidPrice']*math.exp(-.04*30/252)
+        self.assertAlmostEqual(b['cash_flows']['stock_sale']-a['cash_flows']['stock_sale'],extra_sale)
+        self.assertEqual(a['cash_flows']['option_purchase'],b['cash_flows']['option_purchase'])
+        self.assertEqual(a['cash_flows']['option_sale'],b['cash_flows']['option_sale'])
+        self.assertAlmostEqual(b['cash_flows']['stock_sale']-extra_sale,500*35*math.exp(-.04*math.ceil(4*252/365)/252))
+        self.assertEqual(b['expire_worthless']['stock_retained'],600)
+        self.assertEqual(extra['close_alternatives']['assigned']['stock_retained'],100)
+        self.assertEqual(extra['close_alternatives']['buyback']['stock_retained'],600)
+        data['shares']=300;data['contracts']=2
+        intc=m.evaluate(data,paths=100,min_strike_above_midpoint_pct=-100)
+        self.assertEqual(intc['close_alternatives']['assigned']['stock_retained'],100)
+        self.assertEqual(intc['close_alternatives']['assigned']['mean'],8000)
+        self.assertAlmostEqual(intc['baseline'],300*40.05-200*14.5)
+        closed=intc['close_alternatives']['close']
+        self.assertEqual(closed['stock_retained'],100)
+        self.assertAlmostEqual(closed['cash_flows']['stock_sale'],200*40.05)
+        self.assertAlmostEqual(closed['mean'],200*40.05-200*14.5)
+        self.assertAlmostEqual(closed['mean']+closed['retained_stock_value_usd'],intc['baseline'])
+        data['contracts']=5;data['shares']=400
+        with self.assertRaisesRegex(ValueError,'at least 100 shares'):m.evaluate(data,paths=100)
+        for bad in [True,float('nan'),float('inf')]:
+            data['shares']=bad
+            with self.assertRaises(ValueError):m.evaluate(data,paths=100)
+
+    def test_current_position_modes_keep_captured_baseline_and_accounting_separate(self):
+        import copy
+        data=self.fixture();data['opening_reference'].update(historical_option_net_usd=2100,prior_realized_option_usd=150)
+        original=copy.deepcopy(data)
+        result=m.evaluate(data,paths=100)
+        alternatives=result['close_alternatives']
+        buyback=alternatives['buyback'];assigned=alternatives['assigned']
+        self.assertEqual(buyback['mean'],-7500)
+        self.assertEqual(buyback['cash_flows']['stock_sale'],0)
+        self.assertEqual(buyback['stock_retained'],500)
+        self.assertAlmostEqual(buyback['retained_stock_value_usd'],20025)
+        self.assertEqual(buyback['total_pl_usd'],-5250)
+        self.assertIsNone(buyback['net_profit_usd'])
+        self.assertEqual(assigned['mean'],20000)
+        self.assertEqual(assigned['cash_flows']['option_purchase'],0)
+        self.assertEqual(assigned['stock_retained'],0)
+        self.assertEqual(assigned['total_pl_usd'],9750)
+        self.assertAlmostEqual(result['baseline'],12775)
+        self.assertEqual(data,original)
+        data['shares']=550
+        extra=m.close_today_alternative(data,'assigned')
+        self.assertEqual(extra['mean'],20000)
+        self.assertEqual(extra['stock_retained'],50)
+        self.assertAlmostEqual(extra['retained_stock_value_usd'],2002.5)
+        data['shares']=500
+        data['opening_reference']['historical_option_net_usd']=None
+        self.assertIsNone(m.evaluate(data,paths=100)['close_alternatives']['buyback']['total_pl_usd'])
+
+    def test_simulated_quote_means_match_future_cash_flows(self):
+        import math
+        data=self.fixture()
+        data['candidates']=[dict(data['held'],validated=True,strike=45,bidPrice=12,askPrice=13)]
+        result=m.evaluate(data,paths=100,rate=.04)
+        row=result['top_choices'][0];quotes=row['simulation_quotes']
+        self.assertEqual(quotes['horizon_days'],30)
+        self.assertEqual(quotes['paths'],100)
+        self.assertFalse(quotes['replacement_expired'])
+        discount=math.exp(-.04*30/252)
+        self.assertAlmostEqual(quotes['stock']['bidPrice']*data['shares']*discount,row['cash_flows']['stock_sale'])
+        cost=quotes['replacement']['askPrice']*data['contracts']*100*discount+data['held']['askPrice']*data['contracts']*100
+        self.assertAlmostEqual(cost,-row['cash_flows']['option_purchase'])
+        self.assertGreaterEqual(quotes['replacement']['askPrice'],quotes['replacement']['bidPrice'])
+        self.assertEqual(row['expire_worthless']['simulation_quotes'],quotes)
+        data['candidates']=[dict(data['held'],validated=True,strike=45,expiry='2026-10-23',bidPrice=.1,askPrice=.2)]
+        short=m.evaluate(data,paths=100)['top_choices'][0]['simulation_quotes']
+        self.assertTrue(short['replacement_expired'])
+        self.assertIsNone(short['replacement'])
+
     def test_realized_and_unrealized_sum_to_total_and_slider_does_not_realize(self):
         data=self.fixture()
         data['opening_reference'].update(prior_realized_option_usd=1500,active_realized_option_usd=200)

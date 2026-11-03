@@ -23,11 +23,15 @@ def report(position_id, path=DB):
             if basis:
                 purchase = dict(date=basis['purchase_date'], quantity=holding['shares'], priceUsd=basis['price_usd'],
                                 feesUsd=(basis['fees_usd'] or 0)*holding['shares']/basis['quantity'])
-        if purchase:
-            gross = amount(holding['shares']*purchase['priceUsd'])
-            fees = amount((purchase.get('feesUsd') or 0)*holding['shares']/purchase['quantity'])
-            entries.append(dict(id=position_id+':stock', date=purchase['date'], action='Buy', instrument='Stock',
-                                expiry=None, strike=None, quantity=holding['shares'], unit='shares', price_usd=purchase['priceUsd'],
+        lots=holding.get('stock_purchases') or ([purchase] if purchase else [])
+        lot_total=sum(Decimal(str(lot['quantity'])) for lot in lots)
+        fraction=Decimal(str(holding['shares']))/lot_total if lot_total else Decimal(0)
+        for index,lot in enumerate(lots):
+            quantity=Decimal(str(lot['quantity']))*fraction
+            gross=amount(quantity*Decimal(str(lot['priceUsd'])))
+            fees=amount(Decimal(str(lot.get('feesUsd') or 0))*fraction)
+            entries.append(dict(id=position_id+':stock'+(':'+str(index) if len(lots)>1 else ''), date=lot['date'], action='Buy', instrument='Stock',
+                                expiry=None, strike=None, quantity=float(quantity), unit='shares', price_usd=lot['priceUsd'],
                                 gross_usd=gross, fees_usd=fees, cash_flow_usd=amount(-gross-fees),
                                 outcome='Shares held', expired=None, realized_pl_usd=None))
 

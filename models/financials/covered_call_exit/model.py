@@ -94,8 +94,8 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04, close_at_mid=True,
     criteria=normalize_criteria(dict(purchase_price_multiplier=purchase_price_multiplier,
         min_strike_above_midpoint_pct=min_strike_above_midpoint_pct,max_strike_above_midpoint_pct=max_strike_above_midpoint_pct))
     floor=purchase*1.10
-    if type(n) is not int or n<=0 or shares!=100*n or strike<=0 or expiry<=today:
-        raise ValueError('Requires an unexpired, fully covered standard 100-share call position')
+    if type(n) is not int or n<=0 or isinstance(shares,bool) or not isinstance(shares,(int,float)) or not math.isfinite(shares) or shares<100*n or strike<=0 or expiry<=today:
+        raise ValueError('Requires an unexpired standard call position with at least 100 shares per contract')
     if not valid_quote(held,n) or not valid_quote(data['stock'],n,False):
         raise ValueError('Fresh, non-halted, two-sided quotes and full option size are required')
     history=data['history']; start=month_shift(today,-3)
@@ -125,7 +125,14 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04, close_at_mid=True,
             s=path[expiry_steps-1]
             # Cash assignment above strike; below strike retain then sell shares.
             growth=math.exp(rate*(days-expiry_steps)/252)
-            return (k if s>=k else max(0,path[days-1]-spread)), dict(stock_sale=n*100*k*growth if s>=k else shares*max(0,path[days-1]-spread),option_purchase=0,option_sale=0)
+            bid=max(0,path[days-1]-spread)
+            if s>=k:
+                extra=shares-n*100
+                # Only covered shares are assigned; sell excess shares at horizon.
+                sale=n*100*k*growth+extra*bid
+                floor_price=min(k,bid) if extra>0 else k
+                return floor_price,dict(stock_sale=sale,option_purchase=0,option_sale=0)
+            return bid,dict(stock_sale=shares*bid,option_purchase=0,option_sale=0)
         s=path[days-1]; remaining=max(0,((exp-today).days-days*365/252)/365)
         return max(0,s-spread), dict(stock_sale=shares*max(0,s-spread),option_purchase=-n*100*(call_price(s,k,remaining,iv,rate)+halfspread),option_sale=0)
     def aggregate(outcomes,discount):
@@ -175,9 +182,29 @@ def evaluate(data, horizon=30, paths=600, seed=42, rate=0.04, close_at_mid=True,
                 realized_volatility=statistics.stdev(returns)*math.sqrt(252),held_implied_volatility=held_iv,
                 objective='Highest simulated mean discounted USD liquidation wealth; not a validated profit forecast',
                 assumptions=[f'Annual continuously compounded interest rate: {100*rate:.6f}%; same rate for all option pricing and discounting', ('Close today uses captured stock and call midpoints; midpoint execution is not guaranteed' if close_at_mid else 'Slider close uses scenario stock bid and call ask'), 'Three-month daily-return bootstrap; historical drift retained', 'Constant calibrated volatility; European call approximation; no dividends or early assignment',
+                'Each call covers 100 shares; excess shares remain uncovered and are sold at the horizon in Close mode, or retained in Expire/Buyback mode',
                 "Today's spreads held constant; future execution fees excluded; recorded historical fees included; no taxes; USD retained", 'Rollover credit is cash received, not profit; remaining option liability is deducted at the common horizon',
                 'No historical option-chain backtest; probabilities describe model paths only'])
-    return apply_accounting(data,result)
+    # Quote summaries are undiscounted per-share means, not executable quotes.
+    result=apply_accounting(data,result)
+    stock_quotes=dict(bidPrice=sum(max(0,p[horizon-1]-spread) for p in trajectories)/paths,
+                      askPrice=sum(p[horizon-1]+spread for p in trajectories)/paths)
+    for row in result['top_choices']:
+        q=next(q for q in data['candidates'] if q['expiry']==row['expiry'] and q['strike']==row['strike'])
+        exp=date.fromisoformat(q['expiry'])
+        expired=max(1,math.ceil((exp-today).days*252/365))<=horizon
+        replacement=None
+        if not expired:
+            iv=q.get('scenario_iv') or implied_volatility(spot,q['strike'],(exp-today).days/365,(q['bidPrice']+q['askPrice'])/2,rate)
+            remaining=max(0,((exp-today).days-horizon*365/252)/365)
+            mids=[call_price(p[horizon-1],q['strike'],remaining,iv,rate) for p in trajectories]
+            half=(q['askPrice']-q['bidPrice'])/2
+            replacement=dict(bidPrice=sum(max(0,mid-half) for mid in mids)/paths,
+                             askPrice=sum(mid+half for mid in mids)/paths)
+        row['simulation_quotes']=dict(horizon_days=horizon,stock=stock_quotes,
+            replacement=replacement,replacement_expired=expired,paths=paths)
+        row['expire_worthless']['simulation_quotes']=row['simulation_quotes']
+    return result
 
 
 def stock_price_scenario(data, price, rate=0.04):
@@ -242,6 +269,32 @@ def rollover_funding(data, replacement):
                 note='Estimated net rollover debit before fees, assuming simultaneous legs. Does not measure broker buying power, account cash shortfall or margin requirement.')
 
 
+def close_today_alternative(data, mode):
+    """Read-only captured-quote comparison; assignment is hypothetical."""
+    if mode not in ('close','assigned','buyback'):
+        raise ValueError('Choose close, assigned or buyback.')
+    shares=data['shares'];covered=data['contracts']*100
+    spot=(data['stock']['bidPrice']+data['stock']['askPrice'])/2
+    strike=data['held']['strike']
+    assigned=mode=='assigned';closing=mode=='close'
+    retained=shares-covered if assigned or closing else shares
+    buyback=covered*(data['held']['bidPrice']+data['held']['askPrice'])/2 if closing else covered*data['held']['askPrice']
+    cash=covered*strike if assigned else covered*spot-buyback if closing else -buyback
+    reference=data.get('opening_reference',{})
+    cost=reference.get('stock_cost_usd',reference.get('stock_total_usd'))
+    net=reference.get('historical_option_net_usd',reference.get('option_total_usd'))
+    finite=lambda v:isinstance(v,(int,float)) and not isinstance(v,bool) and math.isfinite(v)
+    profit=cash+retained*spot+net-cost if (assigned or closing) and finite(net) and finite(cost) else cash+net if not assigned and finite(net) else None
+    row=dict(strategy='Close now',exit_mode=mode,days=0,mean=cash,p10=cash,p90=cash,
+        cash_flows=dict(stock_sale=covered*strike if assigned else covered*spot if closing else 0,option_purchase=0 if assigned else -buyback,option_sale=0),
+        stock_retained=retained,retained_stock_value_usd=retained*spot,
+        sale_floor_pass_rate=float((strike if assigned else spot)>=data['initial_purchase_price_usd']*1.10) if assigned or closing else None,
+        eligible=(assigned or closing) and (strike if assigned else spot)>=data['initial_purchase_price_usd']*1.10,
+        net_profit_usd=profit if assigned or closing else None,option_profit_usd=profit if mode=='buyback' else None,
+        assumption='Close only the covered shares and held calls at captured midpoints; excess shares remain owned and valued at the captured stock midpoint.' if closing else 'Hypothetical assignment of covered shares at held strike; timing is not selectable. Excess shares valued at captured midpoint.' if assigned else 'Buy back held call at captured ask; retain all shares. Option-only P/L excludes stock value and future fees.')
+    return pnl_segments(data,row,profit)
+
+
 def apply_accounting(data, result):
     """Update historical accounting without repricing saved future cash flows."""
     # Upgrade the close reference in saved captures without changing their quotes
@@ -279,6 +332,10 @@ def apply_accounting(data, result):
             pnl_segments(data,expire,expire['option_profit_usd'])
     result['top_choices']=sorted((r for r in result.get('rows',[]) if r['strategy']=='Roll then close' and r['net_profit_usd'] is not None),key=lambda r:r['net_profit_usd'],reverse=True)[:3]
     result['profit_reference_available']=known
+    if all(key in data for key in ('shares','contracts','stock','held','initial_purchase_price_usd')) and 'strike' in data['held']:
+        close=next((row for row in result['rows'] if row['strategy']=='Close now'),None)
+        if close:
+            result['close_alternatives']={mode:close_today_alternative(data,mode) for mode in ('close','assigned','buyback')}
     return result
 
 

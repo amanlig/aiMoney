@@ -1,11 +1,11 @@
 import {html, useState, useEffect, useRef} from './ui.js';
 import {api} from './api.js';
 
-export function Recommendations({holding, analysis, price, modes, pending, interestRate, rolloverCriteria}) {
+export function Recommendations({holding, analysis, price, modes, pending, interestRate, rolloverCriteria,closeMode='close'}) {
   const [goal, setGoal] = useState('keep_exposure'), [status, setStatus] = useState('');
   const [assessment, setAssessment] = useState(''), [busy, setBusy] = useState(false);
   const [history, setHistory] = useState([]), [historyError, setHistoryError] = useState('');
-  const snapshot = JSON.stringify({account: holding?.account, symbol: holding?.symbol, ...(holding?.position_id ? {position_id: holding.position_id} : {}), captured_at: analysis?.inputs.captured_at, stock_price: price, goal, modes, interest_rate: interestRate, expected_rate: analysis?.result.rate, rollover_criteria: rolloverCriteria});
+  const snapshot = JSON.stringify({account: holding?.account, symbol: holding?.symbol, ...(holding?.position_id ? {position_id: holding.position_id} : {}), captured_at: analysis?.inputs.captured_at, stock_price: price, goal, modes, close_mode:closeMode, interest_rate: interestRate, expected_rate: analysis?.result.rate, rollover_criteria: rolloverCriteria});
   const latest = useRef(snapshot), running = useRef(false), mounted = useRef(true);
   latest.current = snapshot;
   useEffect(() => {mounted.current = true; api('/api/optimizer-recommendations/status').then(d => {
@@ -28,7 +28,7 @@ export function Recommendations({holding, analysis, price, modes, pending, inter
     } catch(e) {if (mounted.current) setStatus(e.message);} finally {running.current = false; if (mounted.current) setBusy(false);}
   }
   return html`<section id="recommendation-panel" aria-label="Optimizer recommendation">
-    <h2>Recommendation</h2><p>Uses the selected holding, chart scenario and Close / Expire choices. Sends this snapshot to OpenAI; successful assessments are saved locally.</p>
+    <h2>Recommendation</h2><p>Uses the selected holding, chart scenario and the selected current-position and rollover choices. Sends this snapshot to OpenAI; successful assessments are saved locally.</p>
     <div className="holding-controls"><label>Objective<select value=${goal} onChange=${e => setGoal(e.target.value)}><option value="keep_exposure">Prefer retaining stock</option><option value="free_cash">Free cash for another investment</option><option value="compare">Compare alternatives</option></select></label>
     <button onClick=${generate} disabled=${busy || pending}>Generate recommendation</button></div>
     <p role="status">${status}</p><pre className="prose">${assessment}</pre>

@@ -18,6 +18,7 @@ export function Dashboard() {
   const [holdings, setHoldings] = useState([]), [selected, setSelected] = useState('0');
   const [baseline, setBaseline] = useState(null), [analysis, setAnalysis] = useState(null);
   const [price, setPrice] = useState(0), [modes, setModes] = useState({});
+  const [closeMode,setCloseMode]=useState('close');
   const [resetRevision,setResetRevision]=useState(0);
   const [status, setStatus] = useState('Loading saved holdings…'), [scenarioStatus, setScenarioStatus] = useState('');
   const [refreshBusy, setRefreshBusy] = useState(false), [pending, setPending] = useState(false);
@@ -36,6 +37,7 @@ export function Dashboard() {
   const [recommendations, setRecommendations] = useState(false);
   const generation = useRef(0), scenarioGeneration = useRef(0), scenarioAbort = useRef(null), refreshRunning = useRef(false);
   const holding = holdings[Number(selected)];
+  useEffect(()=>setCloseMode('close'),[holdingIdentity(holding)]);
   useEffect(() => {
     const controller = new AbortController();
     api('/api/exit-optimizer/holdings', {signal: controller.signal}).then(d => {setHoldings(d.holdings); if(!d.holdings.length) setStatus('No active holdings. Use New to start with a stock purchase.');}).catch(e => {if(e.name !== 'AbortError') setStatus(e.message);});
@@ -140,7 +142,7 @@ export function Dashboard() {
   const openingReference = analysis?.inputs.opening_reference || {};
   const priorCash = openingReference.prior_realized_option_usd === undefined ? 0 : openingReference.prior_realized_option_usd;
   const realizedCash = Number.isFinite(openingReference.historical_option_net_usd) && Number.isFinite(priorCash) ? openingReference.historical_option_net_usd+priorCash : null;
-  const closeToday=(baseline?.result.rows || analysis?.result.rows || []).find(row => row.strategy==='Close now');
+  const closeToday=(baseline || analysis)?.result.close_alternatives?.[closeMode] || (closeMode==='close' ? (baseline?.result.rows || analysis?.result.rows || []).find(row => row.strategy==='Close now') : null);
   const closeProfit=closeToday ? Object.hasOwn(closeToday,'total_pl_usd') ? closeToday.total_pl_usd : closeToday.net_profit_usd : null;
   const closeReference=(baseline || analysis)?.inputs.opening_reference || {};
   const closeSettings = () => {setSettings(false); if(location.hash === '#profile-settings') history.replaceState(null, '', location.pathname + location.search);};
@@ -190,15 +192,17 @@ export function Dashboard() {
           onPrice=${value=>{scenarioGeneration.current++;scenarioAbort.current?.abort();setPending(true);setPrice(value);}}
           onReset=${resetScenario}/>
         ${analysis ? html`<div id="close-today-summary" aria-labelledby="close-today-title">
-        <h3 id="close-today-title">If you close today</h3>
-        <p>Estimated total position P/L<strong className=${Number.isFinite(closeProfit) ? closeProfit>=0 ? 'gain' : 'loss' : ''}>${Number.isFinite(closeProfit) ? money(closeProfit) : 'Unavailable — complete transaction history is required'}</strong></p>
+        <h3 id="close-today-title">${{close:'If you close today',assigned:'If assigned at the held strike',buyback:'If you buy back the call today'}[closeMode]}</h3>
+        <p>${closeMode==='buyback' ? 'Estimated option-only P/L' : 'Estimated total position P/L'}<strong className=${Number.isFinite(closeProfit) ? closeProfit>=0 ? 'gain' : 'loss' : ''}>${Number.isFinite(closeProfit) ? money(closeProfit) : 'Unavailable — complete transaction history is required'}</strong></p>
         <div className="close-today-breakdown">
           <p>Stock sale<strong>${money(closeToday?.cash_flows.stock_sale)}</strong></p>
           <p>− Call buyback<strong>${money(Math.abs(closeToday?.cash_flows.option_purchase))}</strong></p>
           <p>+ Realized option cash<strong>${money(realizedCash)}</strong></p>
-          <p>− Stock purchase and fees<strong>${money(closeReference.stock_cost_usd ?? closeReference.stock_total_usd)}</strong></p>
+          ${closeMode!=='buyback' ? html`<p>− Stock purchase and fees<strong>${money(closeReference.stock_cost_usd ?? closeReference.stock_total_usd)}</strong></p>` : null}
+          ${closeToday?.stock_retained>0 ? html`<p>Shares retained<strong>${closeToday.stock_retained}</strong></p><p>Retained stock value · not cash<strong>${money(closeToday.retained_stock_value_usd)}</strong></p>` : null}
         </div>
-        <small>Close today uses captured stock and call midpoints (bid + ask) / 2; execution is not guaranteed. Includes recorded stock and option fees; future closing fees excluded. Close today stays fixed when the scenario slider changes.</small>
+        ${closeMode!=='close' ? html`<small>${closeToday?.assumption} Comparisons only; no trades recorded or executed.</small>` : null}
+        <small hidden=${closeMode!=='close'}>Close today sells only the covered shares and buys back the held calls, using captured midpoints (bid + ask) / 2; excess shares remain owned; execution is not guaranteed. Includes recorded stock and option fees; future closing fees excluded. Close today stays fixed when the scenario slider changes.</small>
       </div>` : null}
       </section>
       <${RolloverCriteria} draft=${criteriaDraft} applied=${criteria} onChange=${value=>{setCriteriaDraft(value);setCriteriaStatus('');}}
@@ -208,7 +212,7 @@ export function Dashboard() {
       midpoint=${analysis ? price : null}/>
     </div>
     ${lastExpiration ? html`<p role="status">${lastExpiration.symbol} call expired worthless. Realized option P/L: ${lastExpiration.realized_option_pl_usd==null ? 'Unavailable' : money(lastExpiration.realized_option_pl_usd)}. ${lastExpiration.shares_retained} shares retained.</p>` : null}
-    <div hidden=${!recommendations}><${Recommendations} holding=${holding} analysis=${analysis} price=${price} modes=${modes} pending=${unsettled} interestRate=${interestRate} rolloverCriteria=${criteria}/></div>
+    <div hidden=${!recommendations}><${Recommendations} closeMode=${closeMode} holding=${holding} analysis=${analysis} price=${price} modes=${modes} pending=${unsettled} interestRate=${interestRate} rolloverCriteria=${criteria}/></div>
     ${analysis ? html`<section id="results" aria-busy=${refreshBusy || pending}><h2>Close today & top 3 rollovers <small>USD · recorded historical fees included; future trade fees excluded</small></h2>
       <p>Applied replacement strike range: ${money(analysis.result.search?.minimum_strike)}${analysis.result.search?.minimum_exclusive ? ' (exclusive)' : ' (inclusive)'}
         to ${analysis.result.search?.maximum_strike==null ? 'no upper limit' : money(analysis.result.search.maximum_strike)+' (inclusive)'}.</p>
@@ -216,7 +220,7 @@ export function Dashboard() {
         · ${analysis.inputs.interest_rate?.source || 'Legacy fixed assumption'}
         ${analysis.inputs.interest_rate?.observed_on ? ` · Observed ${analysis.inputs.interest_rate.observed_on}` : ''}
         ${analysis.inputs.interest_rate?.warning ? ` · ${analysis.inputs.interest_rate.warning}` : ''}.</p>
-      <div className="legend">${[['#26856c', 'Stock sale / assignment'], ['#d45b68', 'Purchase calls to close'], ['#518acb', 'Sell replacement calls'], ['#7955ac', 'Net P/L']].map(([color, label]) => html`<span key=${label} style=${{'--color': color}}>${label}</span>`)}</div>
+      <div className="legend">${[['#26856c', 'Stock sale / assignment'], ...(['close','assigned','buyback'].includes(closeMode) && closeToday?.retained_stock_value_usd>0 ? [['#70c8b5','Retained stock value · not cash']] : []), ['#d45b68', 'Purchase calls to close'], ['#518acb', 'Sell replacement calls'], ['#7955ac', 'Net P/L']].map(([color, label]) => html`<span key=${label} style=${{'--color': color}}>${label}</span>`)}</div>
       <div id="opening-reference"><div>All stock purchases · solid line<strong>${money(openingReference.all_purchases_total_usd ?? openingReference.stock_total_usd)}</strong><small>${Number.isFinite(openingReference.all_purchases_price_usd ?? openingReference.stock_price_usd) ? money(openingReference.all_purchases_price_usd ?? openingReference.stock_price_usd) + ' per share · weighted average · fees excluded' : 'Save the original stock purchase for this holding'}</small></div>
         <div id="realized-cash-summary">Realized option cash<strong>${realizedCash===null ? openingReference.history_status==='incomplete' ? 'History incomplete' : 'Unavailable' : money(realizedCash)}</strong><small>Recorded premiums − buybacks − option fees · includes the open-call premium</small>
         </div>
@@ -224,10 +228,10 @@ export function Dashboard() {
       ${analysis.inputs.opening_reference?.history_status ? html`<p className="center" id="position-history">${analysis.inputs.opening_reference.history_status === 'linked'
         ? `Historical option net cash: ${money(analysis.inputs.opening_reference.historical_option_net_usd)} · ${analysis.inputs.opening_reference.rollover_count} recorded rollovers · historical option fees: ${money(analysis.inputs.opening_reference.historical_option_fees_usd)}`
         : 'Cumulative P/L unavailable.'} ${analysis.inputs.opening_reference.history_note}</p>` : null}
-      <p className="center">Each P/L bar shows the total result for that choice: profit above zero, loss below zero. Close includes the stock and option exit; Expire shows option-only P/L while retaining the shares. The slider close scenario uses captured time to expiry, volatility and spreads; it does not predict when the price is reached. Future outcomes are simulations.</p>
+      <p className="center">Each P/L bar shows the total result for that choice: profit above zero, loss below zero. Close includes the stock and option exit; Expire and Buyback show option-only P/L while retaining the shares. The slider close scenario uses captured time to expiry, volatility and spreads; it does not predict when the price is reached. Future outcomes are simulations.</p>
       ${analysis.inputs.opening_reference?.prior_realized_option_usd === null ? html`<p className="center">${analysis.inputs.opening_reference.realized_history_note}</p>` : null}
       <p className="exit-mode-note">Close: sell stock and close the replacement call at the model horizon. Expire: assume worthless expiry and retain stock. The existing-call buyback is charged in both modes. Top three are ranked in Close mode; switches do not rerank them.</p>
-      <${Chart} accountFunds=${accountFunds} key=${holdingIdentity(holding)} analysis=${analysis} baseline=${baseline} modes=${modes} scenarioPrice=${pending ? null : price} onMode=${(key, mode) => setModes(old => ({...old, [key]: mode}))}/>
+      <${Chart} closeMode=${closeMode} onCloseMode=${setCloseMode} accountFunds=${accountFunds} key=${holdingIdentity(holding)} analysis=${analysis} baseline=${baseline} modes=${modes} scenarioPrice=${pending ? null : price} onMode=${(key, mode) => setModes(old => ({...old, [key]: mode}))}/>
       <p className="center">Sale floor = original purchase × 1.10.<br/>Close P/L = accumulated option cash + exit cash − stock purchase cost and recorded purchase fees.<br/>Expire option P/L = accumulated option cash + new premium − held-call buyback today.<br/><small>Path percentages describe this simulation, not guaranteed probabilities. Early assignment is not simulated.</small></p>
       <p className="center funding-note">Roll cash needed = max(existing-call buyback − new premium, $0), before fees. Assumes a combined rollover; separate legs may require the full buyback first. This is the net debit, not broker margin or an additional-deposit estimate. <a href="https://invest.questrade.com/learning/questrade-basics/balances-and-reports/real-time-buying-power" target="_blank" rel="noopener">About broker buying power</a></p>
       <details className="analysis-details"><summary>Analysis details & sources</summary><${AnalysisDetails} analysis=${analysis}/></details>

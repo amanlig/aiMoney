@@ -93,3 +93,15 @@ The uploader infers the personal username from the token and uses a private
 An existing public repository is rejected; visibility is never silently changed.
 After upload, repository privacy and every published file checksum are verified.
 The upload URL and commit are saved in ignored `artifacts/huggingface-upload.json`.
+
+## Live quote observations
+
+[November 3, 2026 buy-USD comparison](evaluation/observations/2026-11-03-buy-usd-cibc.md)
+records the model estimate against a user-provided CIBC quote. Observational
+records are separate from training samples and the historical holdout evaluation.
+
+[Additional buy/sell observations using the November 2 close](evaluation/observations/2026-11-03-reported-buy-sell-prior-close.md) include confirmed CIBC rates and the corresponding model errors.
+
+[October 29 CIBC buy/sell quotes](evaluation/observations/2026-10-29-cibc-buy-sell.md) use the October 29 Yahoo close, as confirmed by the user.
+
+[October 26 CIBC buy/sell quotes](evaluation/observations/2026-10-26-cibc-buy-sell.md) are recorded with their reference basis awaiting confirmation.

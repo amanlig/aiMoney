@@ -128,3 +128,36 @@ design backlog item; implementation has not started.
   chronological out-of-sample validation and safeguards against future-data
   leakage. Compare with the existing simulation baseline and assess whether
   sufficient validated trades exist before choosing a model.
+
+## Future work — buy back call, hold shares, sell call at target
+
+Explore a comparison strategy that buys back the existing short call now at its
+captured ask, retains the shares, and waits to sell a new covered call until the
+stock reaches a configurable target. Default target: 20% above the captured
+current stock midpoint. Keep the target fixed until the user explicitly resets
+it. This is a backlog item, not an implementation request.
+
+- UI parameters: target percentage, maximum waiting period, and new call time
+  to expiry; apply the user's replacement-strike rules at the trigger.
+- Simulate the first target crossing on each stock-price path. Estimate the
+  replacement premium at that time using simulated price, time to expiry,
+  volatility and spread assumptions; today's quotes do not establish future
+  executable premiums. Paths missing the target retain stock and sell no call.
+- Compare against Close today and immediate rollover at a common evaluation
+  date. Separate cash returned from retained stock value and total position P/L.
+- Display initial buyback cash required, share of paths reaching the target,
+  waiting-time statistics, premium if triggered, and ending cash/stock/P&L.
+- Account for historical option cash and fees consistently. Specify handling of
+  the new call at the common horizon and assignment. Show the uncapped stock
+  downside and the possibility that the target is never reached.
+
+## End-of-day checkpoint — November 3, 2026
+
+Latest deployed release: `covered-close-report-20261103-bc38d082283b`.
+Covered-only Close, retained-stock chart segments, excess-share support and
+separate transaction-report purchase rows are live. Detailed handoff:
+`status/handoff-2026-11-03.md`. Prior pending-deployment notes are superseded.
+
+CIBC observations remain local and outside training. Outstanding reference
+cleanup: retrieve Oct 29's same-day Yahoo close; confirm Oct 26's reference
+date. Longer-term model research items remain above.

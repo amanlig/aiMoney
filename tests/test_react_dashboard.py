@@ -473,6 +473,109 @@ class ReactDashboardTests(unittest.TestCase):
         self.page.get_by_text('Quotes refreshed. Chart updated.').wait_for()
         self.assertEqual(sum(path == 'exit-optimizer/run' for path, _ in self.posts), 1)
 
+    def test_close_only_unwinds_covered_position_and_shows_retained_shares(self):
+        data=capture();data['inputs'].update(shares=300,contracts=2)
+        data['result']['close_alternatives']={'close':dict(strategy='Close now',exit_mode='close',mean=4200,p10=4200,p90=4200,total_pl_usd=3100,net_profit_usd=3100,stock_retained=100,retained_stock_value_usd=2300,sale_floor_pass_rate=1,cash_flows=dict(stock_sale=4600,option_purchase=-400,option_sale=0))}
+        self.context.route('**/api/exit-optimizer/capture?*',lambda route:route.fulfill(json=data))
+        self.open_dashboard()
+        retained=self.page.locator('#chart [data-retained-stock]')
+        self.assertEqual(retained.count(),1)
+        self.assertEqual(retained.get_attribute('data-value'),'2300')
+        self.assertEqual(retained.get_attribute('fill'),'#70c8b5')
+        self.assertIn('100 shares',retained.get_attribute('aria-label'))
+        self.assertIn('not cash',retained.get_attribute('aria-label'))
+        base=self.page.locator('#chart g[role="group"]').first.locator('rect').first
+        self.assertIn('US$4,600.00',base.get_attribute('aria-label'))
+        self.assertAlmostEqual(float(retained.get_attribute('y'))+float(retained.get_attribute('height')),float(base.get_attribute('y')),places=6)
+        self.assertIn('Exit cash US$4,200.00',self.page.locator('#chart').inner_text())
+        self.assertIn('100 excess shares retained',self.page.locator('#chart').inner_text())
+        self.assertIn('US$2,300.00',self.page.locator('#close-today-summary').inner_text())
+        self.assertEqual(self.posts,[])
+        self.assertEqual(self.errors,[])
+
+    def test_assigned_retained_stock_stacks_above_sale_without_becoming_cash(self):
+        data=capture()
+        data['inputs'].update(shares=300,contracts=2)
+        data['inputs']['held']['strike']=40
+        data['result']['close_alternatives']={'assigned':dict(strategy='Close now',exit_mode='assigned',mean=8000,p10=8000,p90=8000,total_pl_usd=3100,net_profit_usd=3100,stock_retained=100,retained_stock_value_usd=6100,sale_floor_pass_rate=1,cash_flows=dict(stock_sale=8000,option_purchase=0,option_sale=0),assumption='Hypothetical assignment.')}
+        self.context.route('**/api/exit-optimizer/capture?*',lambda route:route.fulfill(json=data))
+        self.open_dashboard()
+        choice=self.page.get_by_role('radiogroup',name='Current position choice',exact=True)
+        choice.get_by_role('radio',name='Assigned',exact=True).check()
+        retained=self.page.locator('#chart rect[data-retained-stock]')
+        self.assertEqual(retained.count(),1)
+        self.assertEqual(retained.get_attribute('data-value'),'6100')
+        self.assertEqual(retained.get_attribute('fill'),'#70c8b5')
+        sale=self.page.locator('#chart g[role="group"]').first.locator('rect').first
+        self.assertEqual(retained.get_attribute('x'),sale.get_attribute('x'))
+        self.assertAlmostEqual(float(retained.get_attribute('y'))+float(retained.get_attribute('height')),float(sale.get_attribute('y')),places=6)
+        self.assertGreater(float(retained.get_attribute('height')),0)
+        self.assertIn('Exit cash US$8,000.00',self.page.locator('#chart').inner_text())
+        self.assertIn('not cash',retained.get_attribute('aria-label'))
+        retained.hover()
+        self.assertIn('US$6,100.00',self.page.locator('#chart-detail').inner_text())
+        self.page.screenshot(path='/app/reports/assigned-retained-stock-stacked.png',full_page=True)
+        choice.get_by_role('radio',name='Close',exact=True).check()
+        self.assertEqual(retained.count(),0)
+        self.assertEqual(self.posts,[])
+        self.assertEqual(self.errors,[])
+
+    def test_current_position_modes_update_chart_and_summary_without_requests(self):
+        data=capture()
+        data['result']['close_alternatives']={
+            'assigned':dict(strategy='Close now',exit_mode='assigned',mean=2500,p10=2500,p90=2500,net_profit_usd=700,total_pl_usd=700,stock_retained=0,retained_stock_value_usd=0,sale_floor_pass_rate=1,cash_flows=dict(stock_sale=2500,option_purchase=0,option_sale=0),assumption='Hypothetical assignment; timing not selectable.'),
+            'buyback':dict(strategy='Close now',exit_mode='buyback',mean=-100,p10=-100,p90=-100,option_profit_usd=100,total_pl_usd=100,stock_retained=100,retained_stock_value_usd=2300,sale_floor_pass_rate=None,cash_flows=dict(stock_sale=0,option_purchase=-100,option_sale=0),assumption='Buy back at captured ask; retain stock.')}
+        self.context.route('**/api/exit-optimizer/capture?*',lambda route:route.fulfill(json=data))
+        self.open_dashboard()
+        choice=self.page.get_by_role('radiogroup',name='Current position choice',exact=True)
+        before=self.page.locator('#chart [data-rollover="true"]').all_text_contents()
+        choice.get_by_role('radio',name='Assigned',exact=True).check()
+        summary=self.page.locator('#close-today-summary')
+        self.assertIn('If assigned at the held strike',summary.inner_text())
+        self.assertIn('US$700.00',summary.inner_text())
+        self.assertIn('Assigned (hypothetical)',self.page.locator('#chart').inner_text())
+        choice.get_by_role('radio',name='Buyback',exact=True).check()
+        self.assertIn('Estimated option-only P/L',summary.inner_text())
+        self.assertIn('Retained stock value · not cash',summary.inner_text())
+        self.assertIn('US$2,300.00',summary.inner_text())
+        self.assertIn('Buyback cash flow -US$100.00',self.page.locator('#chart').inner_text())
+        retained=self.page.locator('#chart rect[data-retained-stock]')
+        self.assertEqual(retained.get_attribute('data-value'),'2300')
+        self.assertEqual(retained.get_attribute('fill'),'#70c8b5')
+        self.assertIn('100 shares',retained.get_attribute('aria-label'))
+        self.assertIn('not cash',retained.get_attribute('aria-label'))
+        self.assertIn('Option P/L US$100.00',self.page.locator('#chart').inner_text())
+        self.page.screenshot(path='/app/reports/current-position-buyback.png',full_page=True)
+        self.page.set_viewport_size(dict(width=390,height=844))
+        self.assertTrue(choice.get_by_role('radio',name='Buyback',exact=True).is_visible())
+        choice.get_by_role('radio',name='Close',exact=True).check()
+        self.assertIn('If you close today',summary.inner_text())
+        self.assertIn('US$300.00',summary.inner_text())
+        self.assertEqual(before,self.page.locator('#chart [data-rollover="true"]').all_text_contents())
+        self.assertEqual(self.posts,[])
+        self.assertEqual(self.errors,[])
+
+    def test_rollover_future_quotes_and_expiry_are_clearly_identified(self):
+        data=capture()
+        quotes=dict(horizon_days=30,stock=dict(bidPrice=24.5,askPrice=25.5),replacement=dict(bidPrice=1.2,askPrice=1.4),replacement_expired=False,paths=600)
+        for row in data['result']['top_choices']:
+            row['simulation_quotes']=quotes
+            row['expire_worthless']['simulation_quotes']=quotes
+        self.context.route('**/api/exit-optimizer/capture?*',lambda route:route.fulfill(json=data))
+        self.open_dashboard()
+        rolls=self.page.locator('#chart g[data-rollover="true"]')
+        first=rolls.first
+        self.assertIn('Simulated mean · Day 30',first.text_content())
+        self.assertIn('Bid US$24.50 / Ask US$25.50',first.text_content())
+        self.assertIn('Bid US$1.20 / Ask US$1.40',first.text_content())
+        self.page.screenshot(path='/app/reports/rollover-future-quotes-desktop.png',full_page=True)
+        quote=first.locator('[data-rollover-quote]').last
+        self.assertLess(float(quote.get_attribute('y')),912)
+        first.get_by_role('radio',name='Expire',exact=True).check()
+        self.assertIn('No expiry quote; assumed $0 payoff',first.text_content())
+        self.assertNotIn('Bid US$1.20 / Ask US$1.40',first.text_content())
+        self.assertEqual(self.errors,[])
+
     def test_purchase_reference_uses_all_lots_without_changing_position_cost(self):
         data=capture()
         data['inputs']['opening_reference'].update(all_purchases_total_usd=5000,all_purchases_price_usd=25,all_purchases_shares=200)
@@ -1063,7 +1166,7 @@ class ReactDashboardTests(unittest.TestCase):
         bar.focus()
         expect(self.page.locator('#chart-detail')).to_have_text('Net option-only P/L: -US$50.00')
         expect(self.page.locator('#close-today-summary > p > strong')).to_have_text('US$9,297.10')
-        self.page.get_by_role('radio',name='Close',exact=True).first.check()
+        self.page.locator('#chart [data-rollover="true"]').first.get_by_role('radio',name='Close',exact=True).check()
         self.page.screenshot(path=str(ROOT/'reports/net-pnl-chart-desktop.png'),full_page=True)
         self.page.set_viewport_size(dict(width=390,height=844))
         expect(self.page.locator('#close-today-summary > p > strong')).to_be_visible()
