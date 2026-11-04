@@ -161,3 +161,5 @@ separate transaction-report purchase rows are live. Detailed handoff:
 CIBC observations remain local and outside training. Outstanding reference
 cleanup: retrieve Oct 29's same-day Yahoo close; confirm Oct 26's reference
 date. Longer-term model research items remain above.
+
+Certification and institutional credibility reference saved in `docs/certification-and-model-validation.md`, including independent validation, SOC 2, ISO 27001, CFA/FRM and a CQF overview with November 3, 2026 sources.
