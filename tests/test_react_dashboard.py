@@ -91,6 +91,44 @@ class ReactDashboardTests(unittest.TestCase):
         self.page.on('request', lambda request: self.requests.append(request.url))
         self.context.route('**/api/**', self.api)
 
+    def test_uncovered_entry_uses_existing_opening_form_and_shared_purchases(self):
+        from urllib.parse import urlsplit
+        from playwright.sync_api import expect
+        purchase=dict(date='2025-01-02',quantity=400,priceUsd=20,feesUsd=0)
+        active=[dict(account='RRSP',symbol='TEST',shares=200,call_contracts=2,call_expiry='2028-01-21',call_strike_native_currency=40,position_id='original',stock_purchase=purchase),
+                dict(account='RRSP',symbol='TEST',shares=200,call_contracts=0,call_expiry='',call_strike_native_currency=0,position_id='uncovered',allocated_purchase_only=True)]
+        def route_api(route):
+            endpoint=urlsplit(route.request.url).path.removeprefix('/api/')
+            if endpoint=='exit-optimizer/holdings':route.fulfill(json={'holdings':active});return
+            if endpoint.endswith('/history'):
+                h=next(h for h in active if h['position_id']==endpoint.split('/')[1])
+                route.fulfill(json={'position':h,'opening':None,'rollovers':[]});return
+            if endpoint=='positions/uncovered/opening':
+                body=route.request.post_data_json;self.posts.append((endpoint,body))
+                active[1].update(call_contracts=body['contracts'],call_strike_native_currency=body['strike'],call_expiry=body['expiry'])
+                route.fulfill(status=201,json=dict(body,id='uncovered'));return
+            self.api(route)
+        self.context.route('**/api/**',route_api)
+        self.open_dashboard()
+        self.page.get_by_role('button',name='Transactions',exact=True).click()
+        modal=self.page.get_by_role('dialog',name='Transactions',exact=True)
+        stock=modal.get_by_role('tabpanel',name='Stock purchase',exact=True)
+        expect(stock.locator('tbody tr')).to_have_count(1)
+        modal.get_by_label('Holding',exact=True).select_option('uncovered')
+        expect(stock.locator('tbody tr')).to_have_count(1)
+        self.assertEqual(stock.get_by_label('RRSP TEST Purchase shares',exact=True).input_value(),'400')
+        modal.get_by_role('tab',name='Option Opening Sale',exact=True).click()
+        panel=modal.get_by_role('tabpanel',name='Option Opening Sale',exact=True)
+        self.assertEqual(panel.get_by_role('button',name='New option opening sale',exact=True).count(),0)
+        for label,value in [('Original call expiry','2028-02-18'),('Original strike (USD)','45'),('Original contracts','2'),('Settlement date','2026-11-01'),('Premium sold (USD/share)','3')]:
+            panel.get_by_label(label,exact=True).fill(value)
+        panel.get_by_role('checkbox',name='I verified the opening sale against my confirmation.',exact=True).check()
+        panel.get_by_role('button',name='Save opening premium',exact=True).click()
+        panel.get_by_text('Opening sale saved. Close Transactions to update chart P/L using saved quotes.').wait_for()
+        self.assertEqual(self.posts[-1][0],'positions/uncovered/opening')
+        self.assertEqual(self.posts[-1][1]['contracts'],2)
+        self.assertEqual(self.errors,[])
+
     def test_owned_price_controls_left_and_visible_without_analysis(self):
         self.open_dashboard()
         owned=self.page.locator('#owned-position-controls')
@@ -615,6 +653,7 @@ class ReactDashboardTests(unittest.TestCase):
         self.page.get_by_role('button',name='Transactions',exact=True).click()
         panel=self.page.get_by_role('tabpanel',name='Stock purchase',exact=True)
         save=panel.get_by_role('button',name='Save stock purchase',exact=True)
+        expect(save).to_be_visible()
         self.assertEqual(save.locator('xpath=ancestor::tr').count(),1)
         self.assertIn('✎',save.text_content())
         panel.get_by_role('button',name='New stock purchase',exact=True).click()
@@ -755,7 +794,7 @@ class ReactDashboardTests(unittest.TestCase):
             new.get_by_role('button',name='Create holding',exact=True).click()
             modal=self.page.get_by_role('dialog',name='Transactions',exact=True)
             expect(modal.get_by_label('RRSP NEWT Purchase shares',exact=True)).to_have_value('100')
-            self.assertIn('Stock only',modal.get_by_label('Holding',exact=True).inner_text())
+            self.assertIn('Uncovered shares',modal.get_by_label('Holding',exact=True).inner_text())
             modal.get_by_role('tab',name='Option Opening Sale',exact=True).click()
             panel=modal.get_by_role('tabpanel',name='Option Opening Sale',exact=True)
             for label,value in [('Original call expiry','2026-10-23'),('Original strike (USD)','25'),('Original contracts','1'),('Settlement date','2025-01-03'),('Premium sold (USD/share)','2')]:
@@ -768,9 +807,9 @@ class ReactDashboardTests(unittest.TestCase):
             self.page.get_by_role('button',name='Expired worthless',exact=True).click()
             expiry=self.page.get_by_role('dialog',name='Expired worthless',exact=True)
             expiry.get_by_role('checkbox').check();expiry.get_by_role('button',name='Record worthless expiry',exact=True).click()
-            expect(self.page.get_by_label('Holding',exact=True)).to_contain_text('Stock only')
+            expect(self.page.get_by_label('Holding',exact=True)).to_contain_text('Uncovered shares')
             self.page.reload()
-            expect(self.page.get_by_label('Holding',exact=True)).to_contain_text('Stock only')
+            expect(self.page.get_by_label('Holding',exact=True)).to_contain_text('Uncovered shares')
             self.assertEqual(len(positions.expirations(path)),1)
             self.page.get_by_role('button',name='Transactions',exact=True).click()
             modal=self.page.get_by_role('dialog',name='Transactions',exact=True)
@@ -876,65 +915,6 @@ class ReactDashboardTests(unittest.TestCase):
             self.page.screenshot(path=str(ROOT/'reports/transaction-report-mobile.png'),full_page=True)
             modal.get_by_role('button',name='Close transactions',exact=True).click()
             expect(self.page.get_by_role('button',name='Refresh data & analyze',exact=True)).to_be_enabled()
-
-    def test_add_second_expiry_keeps_opening_records_separate(self):
-        from urllib.parse import parse_qs, urlsplit
-        january=dict(account='RRSP',symbol='RKLB',shares=1000,call_contracts=10,call_expiry='2028-01-21',call_strike_native_currency=20,position_id='a'*32,position_key='a'*32)
-        february=dict(january,call_expiry='2028-02-18',position_id='b'*32,position_key='b'*32)
-        active=[january]
-        openings={january['position_id']:dict(id=january['position_id'],account='RRSP',symbol='RKLB',expiry='2028-01-21',strike=20,contracts=10,settlement_date='2026-10-01',price_usd=3)}
-        def api(route):
-            request=route.request;url=urlsplit(request.url);path=url.path.removeprefix('/api/')
-            if path=='exit-optimizer/holdings': route.fulfill(json={'holdings':active});return
-            if path=='profile/holdings':
-                route.fulfill(json={'accounts':[dict(account='RRSP',currency='USD',positions=[dict(symbol='RKLB',shares=2000,cost=40000)])]});return
-            if path=='exit-optimizer/capture':
-                data=capture();position_id=parse_qs(url.query)['position_id'][0]
-                h=next(h for h in active if h['position_id']==position_id)
-                data['inputs'].update(account='RRSP',symbol='RKLB',position_id=position_id,shares=1000,contracts=10)
-                data['inputs']['held'].update(expiry=h['call_expiry'],strike=20)
-                route.fulfill(json=data);return
-            if path=='positions/availability':
-                route.fulfill(json={'stocks':[dict(account='RRSP',symbol='RKLB',total_shares=2000,allocated_shares=len(active)*1000,available_shares=2000-len(active)*1000)]});return
-            if path=='positions' and request.method=='POST':
-                self.posts.append((path,request.post_data_json));active.append(february);route.fulfill(json=february);return
-            if path.startswith('positions/'):
-                position_id=path.split('/')[1]
-                if path.endswith('/history'):
-                    route.fulfill(json={'position':next(h for h in active if h['position_id']==position_id),'opening':openings.get(position_id),'rollovers':[]});return
-                if path.endswith('/opening') and request.method=='POST':
-                    body=request.post_data_json;self.posts.append((path,body));openings[position_id]=dict(body,id=position_id)
-                    route.fulfill(json=openings[position_id]);return
-            self.api(route)
-        self.context.unroute('**/api/**');self.context.route('**/api/**',api)
-        self.open_dashboard()
-        self.page.get_by_role('button',name='Transactions',exact=True).click()
-        modal=self.page.get_by_role('dialog',name='Transactions',exact=True)
-        modal.get_by_role('tab',name='Option Opening Sale',exact=True).click()
-        modal.get_by_text('This position already has its opening sale. Use Edit to correct it.',exact=True).wait_for()
-        self.assertEqual(modal.get_by_role('button',name='Save opening premium',exact=True).count(),0)
-        modal.get_by_role('button',name='Add position',exact=True).click()
-        editor=modal.locator('.position-editor')
-        editor.get_by_label('Call contracts',exact=True).fill('10')
-        editor.get_by_label('Call strike (USD)',exact=True).fill('20')
-        editor.get_by_label('Call expiry',exact=True).fill('2028-02-18')
-        editor.get_by_role('button',name='Create position',exact=True).click()
-        modal.get_by_label('Original call expiry',exact=True).wait_for()
-        self.assertEqual(modal.get_by_label('Holding',exact=True).input_value(),february['position_id'])
-        self.assertEqual(modal.get_by_label('Original call expiry',exact=True).input_value(),'2028-02-18')
-        opening_panel=modal.get_by_role('tabpanel',name='Option Opening Sale',exact=True)
-        opening_panel.get_by_label('Settlement date',exact=True).fill('2026-10-02')
-        opening_panel.get_by_label('Premium sold (USD/share)',exact=True).fill('4')
-        modal.get_by_role('tabpanel',name='Option Opening Sale',exact=True).get_by_role('checkbox',name='I verified the opening sale against my confirmation.',exact=True).check()
-        modal.get_by_role('button',name='Save opening premium',exact=True).click()
-        modal.get_by_text('This position already has its opening sale. Use Edit to correct it.',exact=True).wait_for()
-        self.assertEqual(openings[january['position_id']]['price_usd'],3)
-        self.assertEqual(openings[february['position_id']]['price_usd'],4)
-        self.assertEqual(self.posts[0][1]['shares'],1000)
-        modal.get_by_role('button',name='Close transactions',exact=True).click()
-        self.page.get_by_label('Holding',exact=True).wait_for()
-        self.page.wait_for_function("document.querySelector('select[aria-label=Holding]').value === '1'")
-        self.assertEqual(self.page.get_by_label('Holding',exact=True).locator('option').count(),2)
 
     def test_original_before_rollovers_checkbox_and_historical_buyback(self):
         import covered_positions
@@ -1111,7 +1091,7 @@ class ReactDashboardTests(unittest.TestCase):
                 self.assertEqual(self.page.get_by_role('heading',name='Shares available for new calls',exact=True).count(),0)
                 from playwright.sync_api import expect
                 expect(self.page.get_by_label('Holding',exact=True).locator('option')).to_have_count(1)
-                expect(self.page.get_by_label('Holding',exact=True)).to_contain_text('Stock only')
+                expect(self.page.get_by_label('Holding',exact=True)).to_contain_text('Uncovered shares')
                 self.assertEqual(self.page.get_by_role('heading',name='Closed holdings',exact=True).count(),0)
                 self.assertEqual(expired[0]['realized_option_pl_usd'],175)
                 self.page.get_by_role('button',name='Transactions',exact=True).click()

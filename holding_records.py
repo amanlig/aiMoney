@@ -55,13 +55,10 @@ def create(data,path=DB,*,add_to_existing=True):
             raise ValueError('Record the existing USD purchase price before adding another holding for this stock and account.')
         active=[r for r in existing if not positions.is_inactive(db,r['id'])]
         target=None
-        if add_to_existing and active:
-            selected=data.get('position_id')
-            matches=[r for r in active if not selected or r['id']==selected]
-            if len(matches)!=1:raise ValueError('Select the current holding to add this stock purchase.')
-            target=matches[0]
-        elif data.get('position_id'):
+        if data.get('position_id') and not any(r['id']==data['position_id'] for r in active):
             raise ValueError('Choose an active holding for this stock and account.')
+        if add_to_existing:
+            target=next((r for r in active if r['contracts']==0 and not json.loads(r['base_json']).get('allocated_purchase_only')),None)
         preserve_other_purchases(db,account,symbol,old)
         old_quantity=old['quantity'] if old else 0
         quantity=old_quantity+value['quantity']

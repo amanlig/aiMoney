@@ -1,5 +1,6 @@
 """Read recorded trades for one holding and its allocated expired-call history."""
 from decimal import Decimal, ROUND_HALF_UP
+import json
 
 import covered_positions as positions
 import position_history
@@ -8,6 +9,49 @@ from database import DB
 
 def amount(value):
     return float(Decimal(str(value)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP))
+
+
+def allocated_purchase_lots(db, selected):
+    """Report-only FIFO allocation by first call sale; never rewrite trade records."""
+    peers=[r for r in positions.rows(db) if (r['account'],r['symbol'])==(selected['account'],selected['symbol'])]
+    lots=[]
+    for row in peers:
+        base=json.loads(row['base_json'])
+        if base.get('allocated_purchase_only') or base.get('retained_from_position_id') or base.get('historical_expiration_for'):
+            continue
+        purchases=base.get('stock_purchases') or ([base['stock_purchase']] if base.get('stock_purchase') else [])
+        lots.extend(dict(lot,remaining=Decimal(str(lot['quantity'])),remaining_fees=Decimal(str(lot.get('feesUsd') or 0))) for lot in purchases)
+    if not lots:
+        return None
+    lots.sort(key=lambda lot:lot.get('date') or '9999-12-31')
+    calls=[];uncovered=[]
+    for row in peers:
+        if positions.is_expired(db,row['id']):continue
+        sources=positions.prior_realized(row['id'],db=db)['realized_sources']
+        days=[]
+        for source_id in [row['id'],*[source['position_id'] for source in sources]]:
+            history=positions.history(source_id,db=db)
+            if history['opening']:days.append(history['opening']['settlement_date'])
+            days.extend(roll['settlement_date'] for roll in history['rollovers'])
+        if row['contracts'] or days:
+            if days:calls.append((min(days),row['created_at'],row['id'],row))
+        else:uncovered.append(row)
+    allocated={}
+    def take(row, cutoff=None):
+        needed=Decimal(str(row['shares']));result=[]
+        for lot in lots:
+            if needed<=0:break
+            if cutoff and (not lot.get('date') or lot['date']>cutoff):continue
+            quantity=min(needed,lot['remaining'])
+            if quantity<=0:continue
+            fee=lot['remaining_fees'] if quantity==lot['remaining'] else min(lot['remaining_fees'],Decimal(str(amount(Decimal(str(lot.get('feesUsd') or 0))*quantity/Decimal(str(lot['quantity']))))))
+            result.append(dict(lot,quantity=float(quantity),feesUsd=float(fee)))
+            lot['remaining_fees']-=fee
+            lot['remaining']-=quantity;needed-=quantity
+        allocated[row['id']]=result
+    for day,_,_,row in sorted(calls):take(row,day)
+    for row in sorted(uncovered,key=lambda r:(r['created_at'],r['id'])):take(row)
+    return allocated.get(selected['id'])
 
 
 def report(position_id, path=DB):
@@ -23,9 +67,10 @@ def report(position_id, path=DB):
             if basis:
                 purchase = dict(date=basis['purchase_date'], quantity=holding['shares'], priceUsd=basis['price_usd'],
                                 feesUsd=(basis['fees_usd'] or 0)*holding['shares']/basis['quantity'])
-        lots=holding.get('stock_purchases') or ([purchase] if purchase else [])
+        allocated_lots=allocated_purchase_lots(db,selected)
+        lots=allocated_lots if allocated_lots is not None else holding.get('stock_purchases') or ([purchase] if purchase else [])
         lot_total=sum(Decimal(str(lot['quantity'])) for lot in lots)
-        fraction=Decimal(str(holding['shares']))/lot_total if lot_total else Decimal(0)
+        fraction=(Decimal(1) if allocated_lots is not None else Decimal(str(holding['shares']))/lot_total) if lot_total else Decimal(0)
         for index,lot in enumerate(lots):
             quantity=Decimal(str(lot['quantity']))*fraction
             gross=amount(quantity*Decimal(str(lot['priceUsd'])))
@@ -142,4 +187,5 @@ def report(position_id, path=DB):
                     gross_cash_flow_usd=gross_cash,
                     realized_option_pl_usd=realized, net_option_cash_usd=option_cash, open_call_premium_usd=open_premium,
                     history_complete=complete, allocated_history=any(fraction != 1 for _, fraction, _ in sources),
+                    stock_allocation_note='Stock purchases are allocated oldest first, up to this position’s shares, using purchases on or before its earliest recorded call sale. Same-day purchases are eligible because trade times are not recorded. Uncovered entries show remaining purchases. This report allocation does not change saved cost basis or model inputs.',
                     note='Expired calls combine their sale and confirmed worthless expiry in one row, dated by the sale. Rollover net cash = replacement sale minus buyback and fees. Realized option P/L = the closed call’s original sale minus its buyback and fees. Stock gains and losses are excluded. All rollover fees are charged on the buyback row. Open-call premiums are not realized profit.')

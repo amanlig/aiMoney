@@ -23,7 +23,12 @@ export const rollKey = (analysis, row) => `${analysis.inputs.account}|${analysis
 export const holdingIdentity = h => h?.position_id || h?.position_key || JSON.stringify([h?.account,h?.symbol,h?.call_expiry,h?.call_strike_native_currency]);
 export const positionRequest = h => ({account:h.account,symbol:h.symbol,...(h.position_id ? {position_id:h.position_id} : {})});
 export const captureQuery = h => new URLSearchParams(positionRequest(h)).toString();
-export const holdingLabel = h => h.call_contracts===0 ? `${h.account} · ${h.symbol} · ${h.shares} shares · Stock only` : `${h.account} · ${h.symbol} · $${h.call_strike_native_currency} · ${h.call_expiry} · ${h.call_contracts} calls / ${h.shares} shares`;
+export function compareHoldings(a,b) {
+  const accounts=['RRSP','TFSA','LIRA'];
+  const rank=account=>accounts.includes(account) ? accounts.indexOf(account) : accounts.length;
+  return rank(a.account)-rank(b.account) || a.account.localeCompare(b.account) || a.symbol.localeCompare(b.symbol);
+}
+export const holdingLabel = h => h.call_contracts===0 ? `${h.account} · ${h.symbol} · Uncovered shares · ${h.shares} shares` : `${h.account} · ${h.symbol} · $${h.call_strike_native_currency} · ${h.call_expiry} · ${h.call_contracts} calls / ${h.shares} shares`;
 export function readStored(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; }
 }

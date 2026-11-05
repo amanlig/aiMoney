@@ -120,3 +120,10 @@ section{margin:14px 0;padding:18px}h2{font-size:19px;margin:0 0 14px}h2 small{fo
 .today-toggle{font-size:12px;gap:6px;white-space:nowrap}
 .today-toggle input{width:14px;height:14px}
 .today-toggle label{gap:3px}
+
+#settings-panel-stock input[type=number]{text-align:right;padding-right:0}
+#settings-panel-stock thead th:nth-child(n+3):nth-child(-n+6),
+#settings-panel-stock tbody td:nth-child(n+3):nth-child(-n+6),
+#settings-panel-stock tfoot td{text-align:right}
+#settings-panel-stock input[type=number]::-webkit-inner-spin-button{width:16px;margin:0}
+#settings-panel-stock tfoot td:nth-child(-n+4){padding-right:29px}

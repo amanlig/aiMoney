@@ -2,9 +2,8 @@ import {AccountFundsSettings, serializeAccountFunds} from './AccountFundsSetting
 import {Input} from './Input.js';
 import {InterestRateSettings} from './InterestRateSettings.js';
 import {html, useState, useEffect, useRef} from './ui.js';
-import {api, money, readStored, holdingLabel, holdingIdentity} from './api.js';
+import {api, money, readStored, compareHoldings, holdingLabel, holdingIdentity} from './api.js';
 
-import {PositionEditor} from './PositionEditor.js';
 import {ExpireWorthless} from './OptionExpiration.js';
 import {TransactionReport} from './TransactionReport.js';
 
@@ -47,7 +46,6 @@ export function Settings({onClose, holding}) {
   const [rows, setRows] = useState([]), [ready, setReady] = useState(false);
   const [holdings, setHoldings] = useState([]);
   const [activeHolding, setActiveHolding] = useState(holding || null);
-  const [editor, setEditor] = useState(null);
   const [newPurchase,setNewPurchase]=useState(null);
   const [lastExpiration,setLastExpiration]=useState(null);
   const [reportRevision,setReportRevision]=useState(0);
@@ -70,8 +68,8 @@ export function Settings({onClose, holding}) {
       const id=JSON.stringify([basis.account,basis.symbol]);
       if(!unique.has(id))unique.set(id,{id,account:basis.account,symbol:basis.symbol,date:basis.date || '',quantity:basis.quantity,priceUsd:basis.priceUsd ?? '',feesUsd:basis.feesUsd ?? 0});
     }
-    for(const h of choices.holdings)if(h.stock_purchase)(h.stock_purchases || [h.stock_purchase]).forEach((lot,index)=>{
-      const id=`${h.position_id}:${index}`;unique.set(id,{id,owned_position_id:h.position_id,lot_index:index,account:h.account,symbol:h.symbol,...lot});
+    for(const h of choices.holdings)if(h.stock_purchase && !h.allocated_purchase_only)(h.stock_purchases || [h.stock_purchase]).forEach((lot,index)=>{
+      const id=`${h.position_id}:${index}`;unique.set(id,{id,owned_position_id:h.position_id,lot_index:index,readOnly:Number(h.stock_purchase.quantity)!==Number(h.shares),account:h.account,symbol:h.symbol,...lot});
     });
     const purchases = [...unique.values()];
     setRows(purchases);
@@ -82,7 +80,7 @@ export function Settings({onClose, holding}) {
   async function save(event) {
     event.preventDefault(); setBusy(true);
     try {
-      const selectedRows=rows.filter(selectedPurchase).filter(row=>!activeHolding.stock_purchase || row.id===event.nativeEvent.submitter?.value);
+      const selectedRows=rows.filter(selectedPurchase).filter(row=>row.id===event.nativeEvent.submitter?.value);
       const bases = selectedRows.map(row => {
         const quantity = Number(row.quantity), priceUsd = Number(row.priceUsd), feesUsd = Number(row.feesUsd);
         if (!row.date || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(priceUsd) || priceUsd <= 0
@@ -90,8 +88,8 @@ export function Settings({onClose, holding}) {
         return {account: row.account, symbol: row.symbol, currency: 'USD', date: row.date,
           quantity, priceUsd, feesUsd, fx: null, totalCost: quantity * priceUsd + feesUsd};
       });
-      if(activeHolding.stock_purchase) {
-        const basis=bases[0];await api(`/api/positions/${activeHolding.position_id}/purchase`,{body:{purchase_date:basis.date,shares:basis.quantity,price_usd:basis.priceUsd,fees_usd:basis.feesUsd,lot_index:selectedRows[0].lot_index}});
+      if(selectedRows[0]?.owned_position_id) {
+        const basis=bases[0];await api(`/api/positions/${selectedRows[0].owned_position_id}/purchase`,{body:{purchase_date:basis.date,shares:basis.quantity,price_usd:basis.priceUsd,fees_usd:basis.feesUsd,lot_index:selectedRows[0].lot_index}});
         await load(holdingIdentity(activeHolding));
       } else {await api('/api/stock-cost-basis', {body: {bases}});await load(holdingIdentity(activeHolding));}
       setStatus('Stock purchases saved in USD. Refresh data & analyze to update the chart.');
@@ -105,7 +103,14 @@ export function Settings({onClose, holding}) {
       await load(h.position_id);setNewPurchase(null);setStatus('New stock purchase created.');
     } catch(error) {setStatus(error.message);} finally {setBusy(false);}
   }
-  const selectedPurchase = row => activeHolding?.stock_purchase ? row.owned_position_id===activeHolding.position_id : !row.owned_position_id && row.account===activeHolding?.account && row.symbol===activeHolding?.symbol;
+  const selectedPurchase = row => row.account===activeHolding?.account && row.symbol===activeHolding?.symbol && (row.owned_position_id || !rows.some(other=>other.owned_position_id && other.account===row.account && other.symbol===row.symbol));
+  const purchaseRows=rows.filter(selectedPurchase);
+  const sumPurchases=field => purchaseRows.every(row=>row[field]!=='' && Number.isFinite(Number(row[field])))
+    ? purchaseRows.reduce((total,row)=>total+Number(row[field]),0) : null;
+  const totalShares=sumPurchases('quantity'), totalFees=sumPurchases('feesUsd');
+  const totalPurchaseValue=totalShares!==null && purchaseRows.every(row=>row.priceUsd!=='' && Number.isFinite(Number(row.priceUsd)))
+    ? purchaseRows.reduce((total,row)=>total+Number(row.quantity)*Number(row.priceUsd),0) : null;
+  const averagePurchasePrice=totalShares>0 && totalPurchaseValue!==null ? totalPurchaseValue/totalShares : null;
   function navigateTab(event, current) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
@@ -116,22 +121,19 @@ export function Settings({onClose, holding}) {
   return html`<dialog ref=${dialog} id="transaction-records" aria-labelledby="records-title" onCancel=${() => onClose(holdingIdentity(activeHolding))} onClose=${() => onClose(holdingIdentity(activeHolding))}>
     <div className="settings-header"><h2 id="records-title">Transactions</h2><button type="button" aria-label="Close transactions" onClick=${() => onClose(holdingIdentity(activeHolding))}>×</button></div>
     <div className="purchase-controls"><label>Holding<select aria-label="Holding" value=${activeHolding ? holdingIdentity(activeHolding) : ''} disabled=${!ready || busy || !holdings.length} onChange=${e => {
-      setEditor(null); setNewPurchase(null); setActiveHolding(holdings.find(h => holdingIdentity(h) === e.target.value));
-    }}>${holdings.map(h => html`<option key=${holdingIdentity(h)} value=${holdingIdentity(h)}>${holdingLabel(h)}</option>`)}</select></label>
-      <button type="button" disabled=${busy || !ready} onClick=${() => setEditor('new')}>Add position</button>
-      <button type="button" disabled=${busy || !activeHolding?.position_id} onClick=${() => setEditor('allocation')}>Allocate shares</button>
+      setNewPurchase(null); setActiveHolding(holdings.find(h => holdingIdentity(h) === e.target.value));
+    }}>${[...holdings].sort(compareHoldings).map(h => html`<option key=${holdingIdentity(h)} value=${holdingIdentity(h)}>${holdingLabel(h)}</option>`)}</select></label>
     </div>
-    ${editor ? html`<${PositionEditor} mode=${editor} holding=${activeHolding} onCancel=${() => setEditor(null)} onSaved=${async h => {setEditor(null); await load(h.position_id);}}/>` : null}
     ${lastExpiration ? html`<p role="status">${lastExpiration.symbol} call expired worthless. Realized option P/L: ${lastExpiration.realized_option_pl_usd==null ? 'Unavailable' : money(lastExpiration.realized_option_pl_usd)}. ${lastExpiration.shares_retained} shares retained.</p>` : null}
     <div className="settings-tabs" role="tablist" aria-label="Transaction type">${transactionTabs.map(([id, title]) => html`<button key=${id} type="button" role="tab" id=${`settings-tab-${id}`} aria-controls=${`settings-panel-${id}`} aria-selected=${tab === id} tabIndex=${tab === id ? 0 : -1} ref=${node => {tabButtons.current[id] = node;}} onKeyDown=${e => navigateTab(e, id)} onClick=${() => setTab(id)}>${title}</button>`)}</div>
     <div role="tabpanel" id="settings-panel-stock" aria-labelledby="settings-tab-stock" hidden=${tab !== 'stock'}>
     <button type="button" disabled=${busy || !ready || !activeHolding || !!newPurchase} onClick=${() => setNewPurchase({date:'',quantity:'',priceUsd:'',feesUsd:'0'})}>New stock purchase</button>
     <form onSubmit=${newPurchase ? createPurchase : save}>
-      <p>Each row records a separate stock purchase. Shares and weighted average cost are combined for the holding. All amounts are USD. Enter 0 if there are no fees.</p>
+      <p>All stock purchases for this account and stock are shown in every position. Purchases split across positions are informational. New shares are uncovered until an option opening sale is recorded. All amounts are USD. Enter 0 if there are no fees.</p>
       <div className="table-scroll"><table><thead><tr><th>Holding / account</th>${columns.map(([field, title]) => html`<th key=${field} scope="col">${title}</th>`)}<th>Total cost (USD)</th><th>Action</th></tr></thead>
         <tbody>${rows.filter(selectedPurchase).map(row => html`<tr key=${row.id}><td>${row.account} · ${row.symbol}</td>
-          ${columns.map(([field, title]) => html`<td key=${field}><${Input} aria-label=${`${row.account} ${row.symbol} ${title}`} type=${field === 'date' ? 'date' : 'number'} step="any" min=${field === 'feesUsd' ? '0' : '0.00000001'} required disabled=${busy || !!newPurchase} value=${row[field]} onChange=${e => change(row.id, field, e.target.value)}/></td>`)}
-          <td>${row.quantity !== '' && row.priceUsd !== '' && row.feesUsd !== '' ? money(Number(row.quantity) * Number(row.priceUsd) + Number(row.feesUsd)) : '—'}</td><td><button value=${row.id} aria-label="Save stock purchase" title="Edit and save this stock purchase" disabled=${busy || !ready || !activeHolding || !!newPurchase}><span aria-hidden="true">✎</span></button></td></tr>`)}
+          ${columns.map(([field, title]) => html`<td key=${field}><${Input} aria-label=${`${row.account} ${row.symbol} ${title}`} type=${field === 'date' ? 'date' : 'number'} step="any" min=${field === 'feesUsd' ? '0' : '0.00000001'} required disabled=${busy || !!newPurchase || row.readOnly} value=${row[field]} onChange=${e => change(row.id, field, e.target.value)}/></td>`)}
+          <td>${row.quantity !== '' && row.priceUsd !== '' && row.feesUsd !== '' ? money(Number(row.quantity) * Number(row.priceUsd) + Number(row.feesUsd)) : '—'}</td><td><button value=${row.id} aria-label="Save stock purchase" title="Edit and save this stock purchase" disabled=${busy || !ready || !activeHolding || !!newPurchase || row.readOnly}><span aria-hidden="true">✎</span></button></td></tr>`)}
         ${newPurchase ? html`<tr data-new-stock-purchase="true"><td>${activeHolding.account} · ${activeHolding.symbol} · New</td>
           ${columns.map(([field,title])=>html`<td key=${field}><${Input} aria-label=${`New ${title}`} required disabled=${busy}
             type=${field==='date' ? 'date' : 'number'} step="any" min=${field==='feesUsd' ? '0' : '0.00000001'}
@@ -139,11 +141,17 @@ export function Settings({onClose, holding}) {
           <td>${newPurchase.quantity!=='' && newPurchase.priceUsd!=='' && newPurchase.feesUsd!=='' ? money(Number(newPurchase.quantity)*Number(newPurchase.priceUsd)+Number(newPurchase.feesUsd)) : '—'}</td>
           <td><div className="purchase-row-actions"><button disabled=${busy} aria-label="Save new stock purchase" title="Save new stock purchase">✓</button>
           <button type="button" disabled=${busy} aria-label="Cancel new stock purchase" title="Cancel new stock purchase" onClick=${()=>setNewPurchase(null)}>×</button></div></td>
-        </tr>` : null}</tbody></table></div>
+        </tr>` : null}</tbody>
+        <tfoot><tr><th scope="row" colSpan="2">Totals / weighted average</th>
+          <td>${totalShares===null ? '—' : totalShares.toLocaleString('en-CA',{maximumFractionDigits:8})}</td>
+          <td>${averagePurchasePrice===null ? '—' : money(averagePurchasePrice)}</td>
+          <td>${totalFees===null ? '—' : money(totalFees)}</td>
+          <td>${totalPurchaseValue===null || totalFees===null ? '—' : money(totalPurchaseValue+totalFees)}</td><td></td>
+        </tr></tfoot></table></div>
       <div className="entry-actions"><button type="button" onClick=${() => onClose(holdingIdentity(activeHolding))}>Cancel</button></div>
       <p role="status">${status}</p>
     </form></div>
-    <div role="tabpanel" id="settings-panel-option" aria-labelledby="settings-tab-option" hidden=${tab !== 'option'}><${PremiumForm} key=${holdingIdentity(activeHolding)} initialHolding=${activeHolding} onSaved=${() => load(holdingIdentity(activeHolding))}/></div>
+    <div role="tabpanel" id="settings-panel-option" aria-labelledby="settings-tab-option" hidden=${tab !== 'option'}><${PremiumForm} key=${holdingIdentity(activeHolding)} initialHolding=${activeHolding} onSaved=${h => load(h?.position_id || holdingIdentity(activeHolding))}/></div>
     <div role="tabpanel" id="settings-panel-rollover" aria-labelledby="settings-tab-rollover" hidden=${tab !== 'rollover'}><${RolloverForm} key=${holdingIdentity(activeHolding)} initialHolding=${activeHolding} active=${tab === 'rollover'} onSaved=${() => load(holdingIdentity(activeHolding))} onExpired=${async record => {setLastExpiration(record);await load(record.retained_position?.position_id);setTab('option');}}/></div>
     <${TransactionReport} holding=${activeHolding} revision=${reportRevision}/>
   </dialog>`;
@@ -157,14 +165,14 @@ function OriginalExpiryFields({marked,fees,gross,openingFees=0,disabled,onMarked
 
 function PremiumForm({initialHolding,onSaved}) {
   const [records, setRecords] = useState([]);
-  const [fields, setFields] = useState({expiry: initialHolding?.call_expiry || '', strike: initialHolding?.call_strike_native_currency || '', contracts: initialHolding?.call_contracts || ''}), [reviewed, setReviewed] = useState(false);
+  const [fields, setFields] = useState({expiry: initialHolding?.call_expiry || '', strike: initialHolding?.call_strike_native_currency || '', contracts: initialHolding?.call_contracts || '',fees_usd:'0'}), [reviewed, setReviewed] = useState(false);
   const [status, setStatus] = useState(''), [busy, setBusy] = useState(false), [ready, setReady] = useState(false);
   const [editing, setEditing] = useState(null);
   const [historicalOpening, setHistoricalOpening] = useState(false);
   const [expiredWorthless,setExpiredWorthless]=useState(false), [expirationFees,setExpirationFees]=useState('0');
   const endpoint = '/api/option-premiums/usd';
   function resetForCurrentCall() {
-    setFields({expiry:initialHolding.call_expiry,strike:initialHolding.call_strike_native_currency,contracts:initialHolding.call_contracts});
+    setFields({expiry:initialHolding.call_expiry,strike:initialHolding.call_strike_native_currency,contracts:initialHolding.call_contracts,fees_usd:"0"});
     setHistoricalOpening(false);setExpiredWorthless(false);setExpirationFees('0');
   }
   const expirySavedMessage = result => `Original call recorded as expired worthless. Realized P/L: ${money(result.realized_option_pl_usd)}. See Transaction report. ${initialHolding?.call_contracts ? 'Record the current call’s opening sale separately; it remains active.' : 'The stock holding remains available for its next option opening sale.'}`;
@@ -194,7 +202,7 @@ function PremiumForm({initialHolding,onSaved}) {
   const holding = initialHolding;
   const matching = records.filter(r => holding && r.account === holding.account && r.symbol === holding.symbol);
   const earlierCall = record => holding?.position_id && record.expiry && (holding.call_contracts===0 || record.expiry!==holding.call_expiry || Number(record.strike)!==Number(holding.call_strike_native_currency));
-  const definitions = [['expiry', 'Original call expiry', 'date'], ['strike', 'Original strike (USD)', 'number'], ['contracts', 'Original contracts', 'number'], ['settlement_date', 'Settlement date', 'date'], ['price_usd', 'Premium sold (USD/share)', 'number']];
+  const definitions = [['expiry', 'Original call expiry', 'date'], ['strike', 'Original strike (USD)', 'number'], ['contracts', 'Original contracts', 'number'], ['settlement_date', 'Settlement date', 'date'], ['price_usd', 'Premium sold (USD/share)', 'number'], ['fees_usd','Opening sale fees (USD)','number']];
   async function save(e) {
     e.preventDefault(); if (!holding) return; setBusy(true); setStatus('Saving…');
     const payload = Object.fromEntries(definitions.map(([key, , type]) => [key, type === 'number' ? Number(fields[key]) : fields[key]]));
@@ -211,19 +219,19 @@ function PremiumForm({initialHolding,onSaved}) {
   }
   return html`<section className="option-sale-form"><h3>Record original option premium sale (USD)</h3>
     <p>Record a completed opening call sale against your confirmation. Saving does not place an order. Gross USD amounts exclude fees. Past-dated sales can be saved without marking them expired worthless. For a bought-back or rolled call, leave that box unchecked and record both legs in Rollover.</p>
-    ${matching.length ? html`<p>This position already has its opening sale. Use Edit to correct it.</p>` : html`<form onSubmit=${save}><div className="fields">${definitions.map(([key, title, type]) => html`<label key=${key}>${title}<${Input} type=${type} required step="any" min="0.00000001" value=${fields[key] || ''} onChange=${e => {setFields(old => ({...old, [key]: e.target.value})); setReviewed(false);}}/></label>`)}</div>
+    ${matching.length ? html`<p>This position already has its opening sale. Use Edit to correct it.</p>` : html`<form onSubmit=${save}><div className="fields">${definitions.map(([key, title, type]) => html`<label key=${key}>${title}<${Input} type=${type} required step="any" min=${key==='fees_usd' ? '0' : '0.00000001'} value=${fields[key] ?? ''} onChange=${e => {setFields(old => ({...old, [key]: e.target.value})); setReviewed(false);}}/></label>`)}</div>
       <p>Total premium: ${holding && Number(fields.price_usd) > 0 ? money(Number(fields.contracts) * 100 * Number(fields.price_usd)) : '—'}</p>
       ${holding?.position_id && holding.call_contracts>0 ? html`<label className="review"><${Input} type="checkbox" checked=${historicalOpening} onChange=${e => {setHistoricalOpening(e.target.checked);setReviewed(false);setStatus('');}}/>This is an earlier original call; its strike or expiry differs from the current holding.</label>
       ${historicalOpening && !expiredWorthless ? html`<p>The current holding stays unchanged. Record each rollover from this original call through the current call; cumulative P/L is unavailable until the history is complete.</p>` : null}` : null}
-      ${earlierCall(fields) ? html`<${OriginalExpiryFields} marked=${expiredWorthless} fees=${expirationFees} gross=${Number(fields.contracts)*100*Number(fields.price_usd)} disabled=${busy} onMarked=${value => {setExpiredWorthless(value);setReviewed(false);}} onFees=${value => {setExpirationFees(value);setReviewed(false);}}/>` : null}
+      ${earlierCall(fields) ? html`<${OriginalExpiryFields} marked=${expiredWorthless} fees=${expirationFees} gross=${Number(fields.contracts)*100*Number(fields.price_usd)} openingFees=${Number(fields.fees_usd) || 0} disabled=${busy} onMarked=${value => {setExpiredWorthless(value);setReviewed(false);}} onFees=${value => {setExpirationFees(value);setReviewed(false);}}/>` : null}
       <label className="review"><${Input} type="checkbox" required checked=${reviewed} onChange=${e => setReviewed(e.target.checked)}/>I verified the opening sale against my confirmation.</label>
       <button disabled=${busy || !ready || !holding}>Save opening premium</button>
     </form>`}<p role="status">${status}</p><h3>Opening sale</h3>
-    ${matching.length ? matching.map(r => html`<p key=${`${r.id}-${r.net_cad ?? 'usd'}`}>${r.account} · ${r.symbol} · ${r.expiry} · strike ${r.strike} · ${r.settlement_date} · ${r.contracts} × 100 × ${money(r.price_usd)} = ${money(r.contracts * 100 * r.price_usd)} gross USD <button type="button" disabled=${busy} onClick=${() => {setEditing({...r, reviewed: false}); setStatus('');}}>Edit</button></p>`) : html`<p>No original premium recorded.</p>`}
+    ${matching.length ? matching.map(r => html`<p key=${`${r.id}-${r.net_cad ?? 'usd'}`}>${r.account} · ${r.symbol} · ${r.expiry} · strike ${r.strike} · ${r.settlement_date} · ${r.contracts} × 100 × ${money(r.price_usd)} = ${money(r.contracts * 100 * r.price_usd)} gross USD · Fees ${money(r.fees_usd || 0)} · Net ${money(r.contracts*100*r.price_usd-(r.fees_usd || 0))} <button type="button" disabled=${busy} onClick=${() => {setEditing({...r,fees_usd:r.fees_usd ?? 0, reviewed: false}); setStatus('');}}>Edit</button></p>`) : html`<p>No original premium recorded.</p>`}
     ${editing ? html`<form onSubmit=${update}>
       <h3>Edit ${editing.symbol} opening sale · ${editing.settlement_date}</h3>
       <p>Enter the premium per underlying share. Total = contracts × 100 × premium.</p>
-      <div className="fields">${[['price_usd', 'Premium sold (USD/share)']].map(([key, label]) => html`<label key=${key}>${label}<${Input} type="number" required step="any" min=${key === 'fees_usd' ? '0' : '0.00000001'} value=${editing[key]} onChange=${e => setEditing({...editing, [key]: Number(e.target.value), reviewed: false})}/></label>`)}</div>
+      <div className="fields">${[['price_usd', 'Premium sold (USD/share)'],['fees_usd','Opening sale fees (USD)']].map(([key, label]) => html`<label key=${key}>${label}<${Input} type="number" required step="any" min=${key === 'fees_usd' ? '0' : '0.00000001'} value=${editing[key]} onChange=${e => setEditing({...editing, [key]: Number(e.target.value), reviewed: false})}/></label>`)}</div>
       <p>Total premium: ${money(editing.contracts * 100 * editing.price_usd)}</p>
       ${earlierCall(editing) ? html`<${OriginalExpiryFields} marked=${editing.expired_worthless || false} fees=${editing.expiration_fees_usd ?? '0'} gross=${editing.contracts*100*editing.price_usd} openingFees=${editing.fees_usd || 0} disabled=${busy} onMarked=${value => setEditing({...editing,expired_worthless:value,reviewed:false})} onFees=${value => setEditing({...editing,expiration_fees_usd:Number(value),reviewed:false})}/>` : null}
       <label className="review"><${Input} type="checkbox" required checked=${editing.reviewed} onChange=${e => setEditing({...editing, reviewed: e.target.checked})}/>I verified the corrected sale against my confirmation.</label>

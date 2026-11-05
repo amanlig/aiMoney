@@ -2,7 +2,7 @@ import {StockPriceScenario} from './StockPriceScenario.js';
 import {RolloverCriteria, DEFAULT_CRITERIA, CRITERIA_STORAGE, savedCriteria, normalizeCriteria} from './RolloverCriteria.js';
 import {downloadRollovers} from './RolloverExport.js';
 import {html, useState, useEffect, useRef} from './ui.js';
-import {api, calculateScenario, midpoint, money, holdingLabel, readStored, holdingIdentity, positionRequest, captureQuery} from './api.js';
+import {api, calculateScenario, midpoint, money, compareHoldings, holdingLabel, readStored, holdingIdentity, positionRequest, captureQuery} from './api.js';
 import {Chart} from './Chart.js';
 import {Settings, Profile} from './Settings.js';
 import {Recommendations} from './Recommendations.js';
@@ -166,7 +166,7 @@ export function Dashboard() {
     ${creating ? html`<${NewHolding} holding=${holding} onClose=${() => setCreating(false)} onSaved=${holdingCreated}/>` : null}
     ${deleting && holding ? html`<${DeleteHolding} holding=${holding} onClose=${() => setDeleting(false)} onDeleted=${holdingDeleted}/>` : null}
     <section><div className="holding-controls">
-      <div className="holding-picker"><label>Holding<select aria-label="Holding" value=${selected} disabled=${refreshBusy || !holdings.length} onChange=${e => {generation.current++; scenarioGeneration.current++; scenarioAbort.current?.abort(); setAnalysis(null); setBaseline(null); setSelected(e.target.value);}}>${holdings.map((h, i) => html`<option key=${i} value=${i}>${holdingLabel(h)}</option>`)}</select></label></div>
+      <div className="holding-picker"><label>Holding<select aria-label="Holding" value=${selected} disabled=${refreshBusy || !holdings.length} onChange=${e => {generation.current++; scenarioGeneration.current++; scenarioAbort.current?.abort(); setAnalysis(null); setBaseline(null); setSelected(e.target.value);}}>${holdings.map((h,i)=>({h,i})).sort((a,b)=>compareHoldings(a.h,b.h)).map(({h,i}) => html`<option key=${i} value=${i}>${holdingLabel(h)}</option>`)}</select></label></div>
       <div className="action-groups">
         <div className="action-group optimize" role="group" aria-labelledby="optimization-actions-title"><h2 id="optimization-actions-title">Optimization</h2><div className="action-buttons">
           <button onClick=${refresh} disabled=${refreshBusy || !holding || holding.call_contracts===0 || holding.can_mark_expired}>Refresh data & analyze</button>

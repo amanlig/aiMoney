@@ -174,6 +174,31 @@ def retain_stock_holdings(raw=(),path=DB,db=None):
     return created
 
 
+def separate_uncovered(db,position_id=None):
+    """Expose excess shares separately without changing any call or purchase lot."""
+    for row in rows(db):
+        if position_id is not None and row['id']!=position_id: continue
+        if is_inactive(db,row['id']) or row['contracts']<=0: continue
+        quantity=row['shares']-row['contracts']*100
+        if quantity<=0: continue
+        base=json.loads(row['base_json']);child_base=dict(base)
+        for key in ['stock_purchases','retained_from_position_id','historical_expiration_for']:
+            child_base.pop(key,None)
+        child_base['allocated_purchase_only']=True
+        purchase=base.get('stock_purchase')
+        if purchase:
+            child_base['stock_purchase']=dict(purchase,quantity=quantity,feesUsd=(purchase.get('feesUsd') or 0)*quantity/purchase['quantity'])
+        before=share_sources(db,row['id'])
+        resize_share_sources(db,row,row['contracts']*100)
+        kept={link['position_id']:link['shares'] for link in share_sources(db,row['id'])}
+        moved=[dict(position_id=link['position_id'],shares=link['shares']-kept.get(link['position_id'],0)) for link in before if link['shares']>kept.get(link['position_id'],0)]
+        child=uuid.uuid4().hex
+        db.execute('UPDATE covered_positions SET shares=? WHERE id=?',(row['contracts']*100,row['id']))
+        db.execute("INSERT INTO covered_positions(id,account,symbol,shares,contracts,expiry,strike,base_json,created_at) VALUES (?,?,?,?,0,'',0,?,?)",
+                   (child,row['account'],row['symbol'],quantity,json.dumps(child_base),datetime.now(timezone.utc).isoformat()))
+        db.execute('INSERT INTO position_share_sources(id,links_json) VALUES (?,?)',(child,json.dumps(moved)))
+
+
 def capacity(db, inventory, account, symbol, excluding=None):
     total=inventory.get((account,symbol),0)
     if db.table_exists('stock_cost_basis'):
@@ -215,7 +240,7 @@ def create(data,inventory,template=None,path=DB):
         if any(r['account']==account and r['symbol']==symbol and r['expiry']==expiry and r['strike']==strike and not is_inactive(db,r['id']) for r in rows(db)):
             raise ValueError('This call contract already has an active position. Edit that position instead.')
         position_id=uuid.uuid4().hex
-        base={k:v for k,v in (template or {}).items() if k not in {'position_id','position_key','position_revision','legacy_position','option_expired','can_mark_expired','historical_expiration_for','retained_from_position_id','stock_purchase'}}
+        base={k:v for k,v in (template or {}).items() if k not in {'position_id','position_key','position_revision','legacy_position','option_expired','can_mark_expired','historical_expiration_for','retained_from_position_id','stock_purchase','stock_purchases'}}
         base.update(account=account,symbol=symbol)
         db.execute('INSERT INTO covered_positions(id,account,symbol,shares,contracts,expiry,strike,base_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
                    (position_id,account,symbol,shares,contracts,expiry,strike,json.dumps(base),datetime.now(timezone.utc).isoformat()))
@@ -257,6 +282,9 @@ def save_opening(position_id,data,edit=False,path=DB):
             expiry=date.fromisoformat(data.get('expiry')).isoformat();settlement=date.fromisoformat(data.get('settlement_date')).isoformat()
         except (ValueError,TypeError): raise ValueError('Enter valid expiry and settlement dates.') from None
         price=data.get('price_usd');strike=data.get('strike');contracts=data.get('contracts')
+        fees=data.get('fees_usd',(existing or {}).get('fees_usd',0))
+        if isinstance(fees,bool) or not isinstance(fees,(int,float)) or not math.isfinite(fees) or fees<0:
+            raise ValueError('Enter nonnegative opening sale fees in USD (0 for none).')
         starting_call=row['contracts']==0 and existing is None
         if any(isinstance(x,bool) or not isinstance(x,(int,float)) or not math.isfinite(x) or x<=0 for x in [price,strike]) or type(contracts) is not int or contracts<=0 or (not starting_call and contracts!=row['contracts']) or contracts*100>row['shares']:
             raise ValueError('Enter a positive premium and strike for this position’s contract count.')
@@ -277,11 +305,11 @@ def save_opening(position_id,data,edit=False,path=DB):
                 if (starting_call or json.loads(parent['base_json']).get('historical_expiration_for')==position_id) and settlement<parent['expiry']:
                     raise ValueError('The current opening sale must follow the recorded original call’s expiry.')
         record=dict(existing or {},id=position_id,position_id=position_id,account=row['account'],symbol=row['symbol'],expiry=expiry,strike=strike,
-                    contracts=contracts,settlement_date=settlement,price_usd=price,gross_usd=round(price*contracts*100,2),created_at=(existing or {}).get('created_at',datetime.now(timezone.utc).isoformat()))
+                    contracts=contracts,settlement_date=settlement,price_usd=price,fees_usd=fees,gross_usd=round(price*contracts*100,2),created_at=(existing or {}).get('created_at',datetime.now(timezone.utc).isoformat()))
         if historical: record['historical_opening']=True
         if not math.isfinite(record['gross_usd']): raise ValueError('Opening premium is too large.')
+        record['net_usd']=round(record['gross_usd']-fees,2)
         if 'fx' in record:
-            record['net_usd']=record['gross_usd']-record.get('fees_usd',0)
             record['net_cad']=round(record['net_usd']*record['fx'],2)
         if data.get('expired_worthless') is True:
             return archive_original_expiry(db,row,record,data.get('expiration_fees_usd',0),saved)
@@ -290,6 +318,8 @@ def save_opening(position_id,data,edit=False,path=DB):
             if purchase.get('date') and settlement<purchase['date']: raise ValueError('The option sale must follow the stock purchase.')
             db.execute('UPDATE covered_positions SET contracts=?,expiry=?,strike=? WHERE id=?',(contracts,expiry,strike,position_id))
         db.execute('UPDATE covered_positions SET opening_json=? WHERE id=?',(json.dumps(record,allow_nan=False),position_id))
+        if starting_call:
+            separate_uncovered(db,position_id)
         return record
 
 

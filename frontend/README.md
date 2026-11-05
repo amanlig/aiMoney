@@ -78,9 +78,9 @@ The closure identity includes account, ticker, shares, contracts, strike and exp
 reopening the identical position requires a future lifecycle/reopen workflow.
 
 Covered positions have stable IDs. The dashboard and Transactions selectors include
-strike, expiry, contract count and allocated shares. Add position creates another
-contract in the same account/ticker; Allocate shares adjusts coverage without
-altering its opening or contract count. Each position's opening form becomes
+strike, expiry, contract count and allocated shares. Select uncovered shares and
+record an Option Opening Sale to establish another call position. The Transactions
+screen no longer exposes Add position or Allocate shares. Each position's opening form becomes
 Edit-only after the first save. Position-scoped endpoints own all new transactions;
 legacy premium/rollover tables are retained as historical archives and are claimed
 only when unambiguous. Captures, requests, rollover-mode keys and closing records
@@ -174,3 +174,25 @@ Closed holdings can also show an explicitly backfilled historical_close_referenc
 under accounting_json. Historical closes are daily stock/held-call candle prices,
 kept separate from closing_quote_snapshot, actual executions and realized P/L.
 They cannot supply historical bid/ask or establish market quotes at fill time.
+
+
+Uncovered shares appear as separate account/ticker entries in the holding selector.
+Select one and use Transactions → Option Opening Sale to record a completed sale.
+The existing form creates that call position; any remaining uncovered shares are
+separated after saving. No additional opening-sale button or model parameters are
+needed. New stock purchases add to an uncovered entry rather than increasing an
+existing covered-call allocation. Each purchase retains its own date, quantity,
+price and fees. Transactions shows the account/ticker's purchase rows regardless
+of the selected call or uncovered entry; allocated cost copies are excluded.
+Purchase ledgers already split across allocations are informational (read-only).
+Existing records require a backed-up reconciliation before separating allocations;
+opening the dashboard does not silently rewrite financial balances.
+
+Transaction reports show position-specific purchase allocations, while the Stock
+purchase tab remains an account/ticker-wide informational view. Reports allocate
+purchase lots oldest first to positions ordered by their earliest recorded call
+sale (including linked expired-call history), capped at each position's shares.
+Only purchases dated on or before that sale qualify; same-day purchases qualify
+because intraday timestamps are unavailable. Remaining lots belong to uncovered
+entries. This report-only allocation preserves purchase prices and proportional
+fees and does not rewrite stored balances, cost basis or model arguments.

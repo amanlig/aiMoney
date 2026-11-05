@@ -28,6 +28,7 @@ export function TransactionReport({holding, revision}) {
       </div>
       <p>Realized option cash = recorded opening premiums + replacement sales − buybacks − option fees. Each rollover combines both legs. Cash received includes the premium on the still-open call; overall position P/L also needs the stock value and the call’s current closing cost.</p>
       <p>Gross amounts show buys as negative and sales as positive, including stock purchases. The gross total is net cash flow before fees.</p>
+      ${report.stock_allocation_note ? html`<p>${report.stock_allocation_note}</p>` : null}
       ${report.allocated_history ? html`<p>Linked history is proportional to the retained shares allocated to this holding.</p>` : null}
       ${!report.history_complete ? html`<p role="status">Some option history is missing. Cash totals include the recorded entries only.</p>` : null}
       ${cashEntries.length ? html`<div className="table-scroll" role="region" aria-label="Recorded buy and sell transactions" tabIndex="0"><table>
