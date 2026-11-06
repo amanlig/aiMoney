@@ -51,6 +51,14 @@ class Recommendations(unittest.TestCase):
             self.assertNotIn('secret-test',json.dumps(runs))
             self.assertFalse(json.loads(api.call_args.args[0].data)['store'])
 
+    def test_previous_optimizer_assessments_remain_visible_after_prompt_update(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(service,'DB',Path(folder)/'db.sqlite3'):
+                with service.connect() as db:
+                    db.execute("INSERT INTO recommendation_runs (created_at,model,prompt_version,snapshot_json,assessment,usage_json) VALUES (?,?,?,?,?,?)",
+                               ('now','test','optimizer-assessment-v4','{}','Saved Markdown table','{}'))
+                self.assertEqual(service.history()[0]['assessment'],'Saved Markdown table')
+
     def test_incomplete_not_saved(self):
         with patch.object(service,'configuration',return_value=('test','test')),patch.object(service.urllib.request,'urlopen',return_value=io.BytesIO(b'{"status":"incomplete"}')),patch.object(service,'connect') as db:
             with self.assertRaises(service.AssessmentError):service.generate({})

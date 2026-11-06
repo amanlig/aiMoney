@@ -614,6 +614,40 @@ class ReactDashboardTests(unittest.TestCase):
         self.assertNotIn('Bid US$1.20 / Ask US$1.40',first.text_content())
         self.assertEqual(self.errors,[])
 
+    def test_recommendation_tables_render_for_new_and_saved_assessments(self):
+        from playwright.sync_api import expect
+        assessment = """Prefer **retaining stock** conditionally.
+
+| Replacement call | New premium | Net cash now | Total P/L (mean) |
+| --- | ---: | ---: | ---: |
+| **Sep. 17, 2027 $75** | $765.00 | **$641.00** | **-$1,242.21** |
+| Sep. 17, 2027 $80 | $655.00 | $531.00 | -$1,287.89 |
+
+- Held-call buyback: **$124.00**.
+- <img src=x onerror=alert(1)>
+"""
+        record=dict(id=1, model='test-model', created_at='now', assessment=assessment,
+                    snapshot_json=json.dumps(dict(position=dict(account='RRSP',symbol='TEST'))))
+        self.context.route('**/api/optimizer-recommendations',lambda route:route.fulfill(json=record))
+        self.context.route('**/api/optimizer-recommendations/history',lambda route:route.fulfill(json={'runs':[record]}))
+        self.open_dashboard()
+        self.page.get_by_role('button',name='Recommendation',exact=True).click()
+        self.page.get_by_role('button',name='Generate recommendation',exact=True).click()
+        content=self.page.locator('#recommendation-panel > .assessment-content')
+        expect(content.get_by_role('table')).to_be_visible()
+        expect(content.locator('tbody tr')).to_have_count(2)
+        expect(content.locator('strong').filter(has_text='$641.00')).to_have_count(1)
+        expect(content.locator('img')).to_have_count(0)
+        expect(content).to_contain_text('<img src=x onerror=alert(1)>')
+        self.page.get_by_text('Saved assessments',exact=True).click()
+        self.page.get_by_text('now · RRSP TEST · test-model',exact=True).click()
+        expect(self.page.locator('#recommendation-panel table')).to_have_count(2)
+        self.page.set_viewport_size(dict(width=390,height=844))
+        scroll=content.locator('.assessment-table-scroll')
+        self.assertTrue(scroll.evaluate('(el)=>el.scrollWidth>el.clientWidth'))
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'),390)
+        self.assertEqual(self.errors,[])
+
     def test_purchase_reference_uses_selected_holding_instead_of_all_lots(self):
         data=capture()
         data['inputs']['opening_reference'].update(all_purchases_total_usd=5000,all_purchases_price_usd=25,all_purchases_shares=200)

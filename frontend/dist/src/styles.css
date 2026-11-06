@@ -142,3 +142,15 @@ section{margin:14px 0;padding:18px}h2{font-size:19px;margin:0 0 14px}h2 small{fo
 .recommendation-controls.holding-controls{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px}
 .recommendation-controls label{max-width:100%;min-width:0}
 .recommendation-controls select{max-width:100%}
+
+.assessment-content{line-height:1.6;overflow-wrap:anywhere}
+.assessment-content>p{white-space:pre-wrap}
+.assessment-content h3{margin:20px 0 8px}
+.assessment-content li{margin:6px 0}
+.assessment-table-scroll{max-width:100%;overflow-x:auto;margin:18px 0;border:1px solid #465365;border-radius:10px}
+.assessment-table-scroll table{min-width:680px;font-size:14px}
+.assessment-table-scroll th{background:#202b39;color:#edf2f7;font-weight:600;white-space:normal;vertical-align:bottom}
+.assessment-table-scroll td{vertical-align:top;white-space:normal;min-width:110px}
+.assessment-table-scroll th:first-child,.assessment-table-scroll td:first-child{min-width:180px;text-align:left}
+.assessment-table-scroll tbody tr:nth-child(even){background:rgba(145,197,255,.05)}
+.assessment-table-scroll tbody tr:last-child td{border-bottom:0}
