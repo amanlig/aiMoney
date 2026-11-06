@@ -152,7 +152,8 @@ export function Dashboard() {
     </header>
     <${ClosedHoldings} revision=${closedRevision}/>
   </main>`;
-  return html`<main>
+  const calculating = refreshBusy || pending;
+  return html`<div className="dashboard-shell"><main inert=${calculating} aria-busy=${calculating}>
     <header className="optimizer-header"><div><a href="/">Home</a><h1>Covered-call optimizer</h1></div>
       <nav className=${'profile-menu' + (menu ? ' open' : '')} aria-label="Profile" onBlur=${e => {if(!e.currentTarget.contains(e.relatedTarget)) setMenu(false);}}>
         <button type="button" aria-expanded=${menu} aria-controls="profile-dropdown" onClick=${() => setMenu(!menu)}>${name || 'My profile'} ▾</button>
@@ -221,7 +222,7 @@ export function Dashboard() {
         ${analysis.inputs.interest_rate?.observed_on ? ` · Observed ${analysis.inputs.interest_rate.observed_on}` : ''}
         ${analysis.inputs.interest_rate?.warning ? ` · ${analysis.inputs.interest_rate.warning}` : ''}.</p>
       <div className="legend">${[['#26856c', 'Stock sale / assignment'], ...(['close','assigned','buyback'].includes(closeMode) && closeToday?.retained_stock_value_usd>0 ? [['#70c8b5','Retained stock value · not cash']] : []), ['#d45b68', 'Purchase calls to close'], ['#518acb', 'Sell replacement calls'], ['#7955ac', 'Net P/L']].map(([color, label]) => html`<span key=${label} style=${{'--color': color}}>${label}</span>`)}</div>
-      <div id="opening-reference"><div>All stock purchases · solid line<strong>${money(openingReference.all_purchases_total_usd ?? openingReference.stock_total_usd)}</strong><small>${Number.isFinite(openingReference.all_purchases_price_usd ?? openingReference.stock_price_usd) ? money(openingReference.all_purchases_price_usd ?? openingReference.stock_price_usd) + ' per share · weighted average · fees excluded' : 'Save the original stock purchase for this holding'}</small></div>
+      <div id="opening-reference"><div>Holding stock purchases · solid line<strong>${money(openingReference.stock_total_usd)}</strong><small>${Number.isFinite(openingReference.stock_price_usd) ? money(openingReference.stock_price_usd) + ' per share · weighted average · fees excluded' : 'Save the original stock purchase for this holding'}</small></div>
         <div id="realized-cash-summary">Realized option cash<strong>${realizedCash===null ? openingReference.history_status==='incomplete' ? 'History incomplete' : 'Unavailable' : money(realizedCash)}</strong><small>Recorded premiums − buybacks − option fees · includes the open-call premium</small>
         </div>
       </div>
@@ -236,7 +237,29 @@ export function Dashboard() {
       <p className="center funding-note">Roll cash needed = max(existing-call buyback − new premium, $0), before fees. Assumes a combined rollover; separate legs may require the full buyback first. This is the net debit, not broker margin or an additional-deposit estimate. <a href="https://invest.questrade.com/learning/questrade-basics/balances-and-reports/real-time-buying-power" target="_blank" rel="noopener">About broker buying power</a></p>
       <details className="analysis-details"><summary>Analysis details & sources</summary><${AnalysisDetails} analysis=${analysis}/></details>
     </section>` : null}
-  </main>`;
+  </main>
+    ${calculating ? html`<${CalculationProgress} refreshing=${refreshBusy}/>` : null}
+  </div>`;
+}
+
+function CalculationProgress({refreshing}) {
+  const [started] = useState(() => performance.now());
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setElapsed(Math.floor((performance.now() - started) / 1000)), 250);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {clearInterval(timer); document.body.style.overflow = overflow;};
+  }, [started]);
+  const duration = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
+  return html`<div className="calculation-overlay">
+    <div className="calculation-progress" role="status" aria-live="polite">
+      <span className="calculation-spinner" aria-hidden="true"></span>
+      <h2>${refreshing ? 'Refreshing quotes & calculating' : 'Calculating scenario'}</h2>
+      <div className="calculation-timer" role="timer" aria-live="off" aria-label=${`Elapsed time: ${elapsed} seconds`}>${duration}</div>
+      <p>Please wait. The screen will unlock when the calculation finishes.</p>
+    </div>
+  </div>`;
 }
 
 function AnalysisDetails({analysis: d}) {

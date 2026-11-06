@@ -614,15 +614,16 @@ class ReactDashboardTests(unittest.TestCase):
         self.assertNotIn('Bid US$1.20 / Ask US$1.40',first.text_content())
         self.assertEqual(self.errors,[])
 
-    def test_purchase_reference_uses_all_lots_without_changing_position_cost(self):
+    def test_purchase_reference_uses_selected_holding_instead_of_all_lots(self):
         data=capture()
         data['inputs']['opening_reference'].update(all_purchases_total_usd=5000,all_purchases_price_usd=25,all_purchases_shares=200)
         self.context.route('**/api/exit-optimizer/capture?*',lambda route:route.fulfill(json=data))
         self.open_dashboard()
         reference=self.page.locator('#opening-reference').locator('div').first
-        self.assertIn('All stock purchases',reference.inner_text())
-        self.assertIn('US$5,000.00',reference.inner_text())
-        self.assertIn('US$25.00 per share',reference.inner_text())
+        self.assertIn('Holding stock purchases',reference.inner_text())
+        self.assertIn('US$2,000.00',reference.inner_text())
+        self.assertNotIn('US$5,000.00',reference.inner_text())
+        self.assertIn('US$20.00 per share',reference.inner_text())
         self.assertIn('US$2,000.00',self.page.locator('#close-today-summary').inner_text())
         line=self.page.locator('#chart line[stroke="#8b602b"]')
         self.assertEqual(line.count(),1)

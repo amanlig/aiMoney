@@ -33,6 +33,25 @@ class SyntheticPortfolioTests(unittest.TestCase):
         with self.assertRaises(ImporterError):
             call_id(chain, dict(position, call_strike_native_currency='16'))
 
+    def test_missing_contract_identifies_saved_details_and_listed_expiry(self):
+        position = dict(symbol='INTC', call_expiry='2026-11-30', contract_multiplier=100, call_strike_native_currency=62.5)
+        chain = dict(options=[dict(expiryDate='2026-11-27', chainPerRoot=[dict(root='INTC', multiplier=100,
+            chainPerStrikePrice=[dict(strikePrice=62.5, callSymbolId=42)])])])
+        with self.assertRaises(ImporterError) as error:
+            call_id(chain, position)
+        self.assertIn('INTC $62.5 call expiring 2026-11-30', str(error.exception))
+        self.assertIn('Listed expiries at this strike: 2026-11-27', str(error.exception))
+        self.assertIn('Transactions', str(error.exception))
+
+    def test_duplicate_chain_entries_resolve_same_contract_but_not_distinct_ids(self):
+        position = dict(symbol='INTC', call_expiry='2026-11-27', contract_multiplier=100, call_strike_native_currency=62.5)
+        root = dict(root='INTC', multiplier=100, chainPerStrikePrice=[dict(strikePrice=62.5, callSymbolId=42)])
+        chain = dict(options=[dict(expiryDate='2026-11-27', chainPerRoot=[root, root])])
+        self.assertEqual(call_id(chain, position), 42)
+        chain['options'][0]['chainPerRoot'].append(dict(root, chainPerStrikePrice=[dict(strikePrice=62.5, callSymbolId=43)]))
+        with self.assertRaisesRegex(ImporterError, 'multiple distinct contracts'):
+            call_id(chain, position)
+
     def test_capture_path_validation(self):
         with self.assertRaises(ImporterError):
             output_path('../private', 'QBTS')

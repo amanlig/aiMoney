@@ -99,13 +99,12 @@ def authorize(path, new_token=False):
 
 
 def call_id(chain, position):
-    matches = []
+    matches = set()
+    available_expiries = set()
     expiries = chain.get('optionChain', chain.get('options'))
     if not isinstance(expiries, list):
         raise ImporterError('Option-chain response contains neither an optionChain nor options list')
     for expiry in expiries:
-        if expiry['expiryDate'][:10] != position['call_expiry']:
-            continue
         for root in expiry['chainPerRoot']:
             if root.get('root', root.get('optionRoot')) != position['symbol']:
                 continue
@@ -113,10 +112,19 @@ def call_id(chain, position):
                 continue
             for strike in root['chainPerStrikePrice']:
                 if Decimal(str(strike['strikePrice'])) == Decimal(str(position['call_strike_native_currency'])):
-                    matches.append(strike['callSymbolId'])
+                    if strike.get('callSymbolId'):
+                        available_expiries.add(expiry['expiryDate'][:10])
+                        if expiry['expiryDate'][:10] == position['call_expiry']:
+                            matches.add(strike['callSymbolId'])
     if len(matches) != 1:
-        raise ImporterError(f"{position['symbol']}: could not uniquely match standard call strike/expiry/multiplier")
-    return matches[0]
+        contract = (f"{position['symbol']} ${position['call_strike_native_currency']} call "
+                    f"expiring {position['call_expiry']} (multiplier {position['contract_multiplier']})")
+        if matches:
+            raise ImporterError(f'{contract}: multiple distinct contracts returned by Questrade. Verify the contract details before refreshing.')
+        alternatives = ', '.join(sorted(available_expiries))
+        hint = f' Listed expiries at this strike: {alternatives}.' if alternatives else ''
+        raise ImporterError(f'{contract}: no matching listed contract returned by Questrade.{hint} Check the expiry and strike in Transactions → Option Opening Sale or Rollover against your broker confirmation, then refresh.')
+    return next(iter(matches))
 
 
 def validate_contract(detail, position, stock_id):

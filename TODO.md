@@ -40,20 +40,26 @@ No implementation or cloud deployment is authorized by this backlog entry alone.
 Latest cloud release: report-alignment-20261029-208da5c9d250. Interest-rate settings, rollover-field reset and numeric/text report heading alignment are deployed; no deployment pending.
 Latest session handoff: status/handoff-2026-10-30.md. Configurable strike criteria are verified locally and await deployment.
 
-## Outstanding — comparable Close versus Expire P/L
+## Outstanding — comparable full-position P/L for rollover Close versus Expire
 
-Carried forward from October 27. On October 28 the user accepted exploring an
-editable stock-price-at-replacement-expiry scenario. That valuation control and
-comparable full-position Expire result remain unimplemented.
+Clarified November 6, 2026. This item concerns the replacement-call rollover
+choices, rather than the current-position Close / Assigned / Buyback controls.
 
-Main dashboard now emphasizes total close-today profit and draws a single net P/L
-bar. Remaining issue: rollover Expire still displays option-only cash/P/L while
-Close displays the full stock+option result. Agree an explicit retained-stock
-valuation at replacement expiry before changing the model or labeling a comparable
-whole-position result. Existing call buyback remains required for a rollover;
-the worthless replacement has no later buyback. Preserve all recorded cash once.
-The user has accepted that distinction; avoid repeating the closed-call-accounting
-debate. Detailed saved RKLB arithmetic and last stopping point are in the handoff.
+Completed: current-position Close and Assigned include the value of excess shares
+that remain owned, using the captured stock midpoint. Retained stock value is
+shown separately from cash. Current-position Buyback remains option-only P/L.
+
+Still outstanding: rollover Expire displays option-only P/L, while rollover Close
+displays the full stock-plus-option result. Add an explicit stock valuation at the
+replacement expiry so both rollover choices can show comparable full-position P/L,
+with retained stock value separate from cash. The editable stock-price-at-replacement-
+expiry scenario discussed October 28 remains unimplemented; agree its valuation
+assumptions before changing the model.
+
+The existing-call buyback remains required for a rollover; a replacement assumed
+to expire worthless has no later buyback. Include recorded historical cash and fees
+once. The option-only Expire calculation and its current label remain intentional
+until the full-position comparison is implemented.
 
 ## Stock-first New and selected-holding Delete — deployed October 27, 2026
 
@@ -163,3 +169,29 @@ cleanup: retrieve Oct 29's same-day Yahoo close; confirm Oct 26's reference
 date. Longer-term model research items remain above.
 
 Certification and institutional credibility reference saved in `docs/certification-and-model-validation.md`, including independent validation, SOC 2, ISO 27001, CFA/FRM and a CQF overview with November 3, 2026 sources.
+
+## Future work — Google authentication
+
+Requested November 6, 2026. Add Sign in with Google to the app's authentication
+flow. This is a backlog item; implementation has not started.
+
+- Use Google's OpenID Connect flow and validate the returned identity on the server.
+- Preserve the approved-user allowlist: a Google account alone must not grant access
+  or automatically create an authorized user.
+- Decide whether Google sign-in supplements or replaces the current email-code
+  login, and define account linking for existing approved users.
+- Preserve secure app sessions, sign-out, user disabling and access protection for
+  portfolio pages and APIs. Configure separate local and production redirect URLs.
+
+## End-of-day checkpoint — November 6, 2026
+
+Latest deployed release: `progress-alignment-20261106-5d3e9bc9d224`.
+Selected-holding purchase references, contract-matching diagnostics, Python 3.14,
+calculation timer with gray/inert screen, and recommendation alignment are live.
+AWS INTC purchase allocation corrected with user approval and verified against
+saved quotes; account purchase totals unchanged. See
+[session handoff](status/handoff-2026-11-06.md) for deployment, backups, tests,
+local/cloud authorization distinctions and uncommitted working-tree state.
+Prior pending-deployment notes are superseded. Google sign-in remains backlog;
+rollover Close versus Expire still needs comparable full-position valuation.
+No next feature selected or scheduled.

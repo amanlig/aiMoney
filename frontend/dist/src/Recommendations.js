@@ -29,7 +29,7 @@ export function Recommendations({holding, analysis, price, modes, pending, inter
   }
   return html`<section id="recommendation-panel" aria-label="Optimizer recommendation">
     <h2>Recommendation</h2><p>Uses the selected holding, chart scenario and the selected current-position and rollover choices. Sends this snapshot to OpenAI; successful assessments are saved locally.</p>
-    <div className="holding-controls"><label>Objective<select value=${goal} onChange=${e => setGoal(e.target.value)}><option value="keep_exposure">Prefer retaining stock</option><option value="free_cash">Free cash for another investment</option><option value="compare">Compare alternatives</option></select></label>
+    <div className="holding-controls recommendation-controls"><label>Objective<select value=${goal} onChange=${e => setGoal(e.target.value)}><option value="keep_exposure">Prefer retaining stock</option><option value="free_cash">Free cash for another investment</option><option value="compare">Compare alternatives</option></select></label>
     <button onClick=${generate} disabled=${busy || pending}>Generate recommendation</button></div>
     <p role="status">${status}</p><pre className="prose">${assessment}</pre>
     <details><summary>Assessment process</summary><p>1. Load the saved Questrade / Yahoo capture and original transactions.<br/>2. Recalculate the chart scenario and apply Close / Expire choices; Close today stays at captured quotes.<br/>3. Send verified USD cash flows, profit, funding and assumptions to the configured OpenAI model.<br/>4. Save the assessment and input snapshot in the database. No trade is placed; no live news or account cash balance is supplied.</p></details>

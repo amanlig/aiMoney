@@ -23,7 +23,7 @@ file remains a legacy snapshot; host execution needs `DATABASE_URL` to use Postg
 
 ## Run
 
-Requires Python 3.12+ and the pinned FastAPI/Uvicorn dependencies in
+Requires Python 3.14 and the pinned FastAPI/Uvicorn dependencies in
 `requirements.txt`. Node is used for calculation checks.
 
 The active home page, optimizer, Profile / Settings and Recommendation panel use
@@ -33,8 +33,10 @@ FastAPI server immediately. See [frontend setup](frontend/README.md) and
 [FastAPI / Docker setup](DOCKER.md).
 
 ```sh
-python3 -m pip install -r requirements.txt
-python3 dashboard_server.py
+python3.14 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python dashboard_server.py
 ```
 
 React calls FastAPI through `/api/` on the same origin. API documentation is at
@@ -381,10 +383,10 @@ so its option-only P/L is not directly comparable with full-position Close P/L.
 The **AI recommendation** is separate: it interprets the calculated results and
 selected objective rather than running inside `model.py`.
 
-The dashboard's **All stock purchases** amount and solid chart reference line
-show the combined purchase value for the selected account and ticker, excluding
-fees. The per-share value is the share-weighted average across those purchases.
-Position P/L continues to use that position's allocated purchase cost and fees.
+The dashboard's **Holding stock purchases** amount and solid chart reference line
+show the purchase value for the holding selected in the dropdown, excluding
+fees. The per-share value is that holding's weighted average purchase price.
+Position P/L uses that holding's allocated purchase cost and fees.
 
 **New stock purchase** adds an inline entry row for the selected stock/account.
 Saving adds shares, purchase cost and fees to the current holding and updates its

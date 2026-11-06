@@ -44,7 +44,7 @@ export function Chart({analysis, baseline, modes, onMode, scenarioPrice, account
   };
   const sale = row => row.cash_flows.stock_sale + row.cash_flows.option_sale;
   const retainedValue=row=>['close','assigned','buyback'].includes(row.exit_mode) && Number.isFinite(row.retained_stock_value_usd) ? Math.max(0,row.retained_stock_value_usd) : 0;
-  const purchaseTotal=reference.all_purchases_total_usd ?? reference.stock_total_usd;
+  const purchaseTotal=reference.stock_total_usd;
   const high = Math.max(1, purchaseTotal || 0,
     ...rows.map(row => Math.max(sale(row)+retainedValue(row), Math.abs(row.cash_flows.option_purchase), parts(row).positive || 0))) * 1.16;
   const low = Math.min(0, ...rows.map(row => parts(row).negative || 0)) * 1.12;

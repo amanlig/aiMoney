@@ -127,3 +127,18 @@ section{margin:14px 0;padding:18px}h2{font-size:19px;margin:0 0 14px}h2 small{fo
 #settings-panel-stock tfoot td{text-align:right}
 #settings-panel-stock input[type=number]::-webkit-inner-spin-button{width:16px;margin:0}
 #settings-panel-stock tfoot td:nth-child(-n+4){padding-right:29px}
+
+/* Keep progress visible and prevent interaction with stale calculation results. */
+.dashboard-shell>main[inert]{filter:grayscale(1);opacity:.45;pointer-events:none;user-select:none}
+.calculation-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:24px;background:rgba(15,18,24,.62);cursor:wait}
+.calculation-progress{box-sizing:border-box;width:min(100%,460px);padding:36px 28px;text-align:center;border:1px solid #596575;border-radius:16px;background:#18212d;color:#edf2f7;box-shadow:0 20px 80px #0008}
+.calculation-progress h2{margin:18px 0 12px;font-size:23px}
+.calculation-progress p{margin:14px 0 0;color:#bcc7d4}
+.calculation-timer{font-size:56px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.04em;line-height:1.2}
+.calculation-spinner{display:inline-block;width:32px;height:32px;border:3px solid #465365;border-top-color:#91c5ff;border-radius:50%;animation:calculation-spin 1s linear infinite}
+@keyframes calculation-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.calculation-spinner{animation:none}}
+
+.recommendation-controls.holding-controls{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px}
+.recommendation-controls label{max-width:100%;min-width:0}
+.recommendation-controls select{max-width:100%}
